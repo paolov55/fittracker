@@ -1,0 +1,64 @@
+"use client";
+
+import { useAppStore } from "@/lib/store";
+import { useCurrentProfile } from "@/lib/hooks";
+import { weekdayLabel } from "@/lib/format";
+import { Screen, Header, Card, StatCard, IconTile } from "@/components/ui/primitives";
+import { CheckIcon } from "@/components/icons";
+
+export default function HistoricoPage() {
+  const profile = useCurrentProfile();
+  const sessions = useAppStore((s) => s.sessions);
+  const workouts = useAppStore((s) => s.workouts);
+
+  if (!profile) return null;
+
+  const mine = sessions
+    .filter((s) => s.student_id === profile.id && s.status === "completed")
+    .sort((a, b) => b.started_at.localeCompare(a.started_at));
+
+  const now = new Date();
+  const thisMonth = mine.filter((s) => {
+    const d = new Date(s.started_at);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const totalVolumeTons = mine.reduce((sum, s) => sum + (s.total_volume_kg ?? 0), 0) / 1000;
+
+  return (
+    <Screen>
+      <Header title="Histórico" />
+
+      <div className="flex gap-3">
+        <StatCard value={thisMonth.length} label="treinos no mês" />
+        <StatCard value={totalVolumeTons.toFixed(1).replace(".", ",")} label="volume total (t)" />
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {mine.length === 0 && (
+          <div className="rounded-2xl border-2 border-dashed border-border p-6 text-center text-sm text-muted">
+            Nenhum treino concluído ainda.
+          </div>
+        )}
+        {mine.map((s) => {
+          const workout = workouts.find((w) => w.id === s.workout_id);
+          const minutes = Math.round((s.duration_seconds ?? 0) / 60);
+          const volume = Math.round(s.total_volume_kg ?? 0).toLocaleString("pt-BR");
+          return (
+            <Card key={s.id} className="flex items-center gap-3">
+              <IconTile>
+                <CheckIcon size={16} />
+              </IconTile>
+              <div className="flex-1 min-w-0">
+                <div className="text-md font-medium truncate">{workout?.name ?? "Treino"}</div>
+                <div className="text-sm text-muted truncate">
+                  {minutes} min · {volume} kg
+                </div>
+              </div>
+              <span className="shrink-0 text-sm text-muted capitalize">{weekdayLabel(s.started_at)}</span>
+            </Card>
+          );
+        })}
+      </div>
+    </Screen>
+  );
+}

@@ -1,0 +1,24 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAppStore } from "@/lib/store";
+
+export default function RunLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const currentUserId = useAppStore((s) => s.currentUserId);
+
+  useEffect(() => {
+    if (!currentUserId) router.replace("/login");
+  }, [currentUserId, router]);
+
+  if (!currentUserId) return null;
+
+  return (
+    <div className="flex min-h-dvh justify-center bg-page">
+      <div className="relative flex w-full max-w-[430px] flex-col bg-bg min-h-dvh overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
+}

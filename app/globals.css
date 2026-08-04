@@ -1,26 +1,119 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --page: #e9e9ec;
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --surface2: #fafafa;
+  --border: #e4e4e7;
+  --text: #18181b;
+  --muted: #71717a;
+  --ink: #18181b;
+  --accent: #3b82f6;
+  --danger: #e11d48;
+  --warm: #f97316;
+}
+
+.dark {
+  --page: #0a0a0b;
+  --bg: #09090b;
+  --surface: #18181b;
+  --surface2: #1f1f23;
+  --border: #27272a;
+  --text: #fafafa;
+  --muted: #a1a1aa;
+  --ink: #18181b;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-poppins), system-ui, sans-serif;
+
+  --color-page: var(--page);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-ink: var(--ink);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-warm: var(--warm);
+
+  --radius-xs: 7px;
+  --radius-sm: 10px;
+  --radius-md: 13px;
+  --radius-lg: 15px;
+  --radius-xl: 18px;
+  --radius-2xl: 22px;
+  --radius-3xl: 26px;
+  --radius-4xl: 28px;
+  --radius-pill: 99px;
+
+  --text-2xs: 10.5px;
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-base: 13.5px;
+  --text-md: 15.5px;
+  --text-lg: 17px;
+  --text-xl: 19px;
+  --text-2xl: 22px;
+  --text-3xl: 26px;
+  --text-4xl: 27px;
+  --text-5xl: 28px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@keyframes ftUp {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes ftFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ftSpin {
+  to { transform: rotate(360deg); }
+}
+.anim-ft-up { animation: ftUp .24s ease both; }
+.anim-ft-up-slow { animation: ftUp .3s ease both; }
+.anim-ft-fade { animation: ftFade .25s ease both; }
+.anim-ft-fade-fast { animation: ftFade .16s ease both; }
+.anim-ft-spin { animation: ftSpin .7s linear infinite; }
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html, body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--page);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  transition: background .25s;
+}
+
+a:hover {
+  color: #2563eb;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
 }
