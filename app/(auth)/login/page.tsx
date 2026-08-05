@@ -13,7 +13,7 @@ export default function LoginPage() {
   const login = useAppStore((s) => s.login);
   const showToast = useAppStore((s) => s.showToast);
 
-  const [email, setEmail] = useState("sara.souza@email.com");
+  const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [loading, setLoading] = useState(false);
 
