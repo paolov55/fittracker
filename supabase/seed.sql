@@ -4,7 +4,7 @@
 --
 -- profiles.id referencia auth.users.id, então os usuários de demo são
 -- criados diretamente em auth.users (padrão comum de seed local do
--- Supabase) — o trigger handle_new_user (0001_init.sql) cria a linha
+-- Supabase) — o trigger handle_new_user (schema.sql) cria a linha
 -- correspondente em profiles automaticamente a partir de raw_user_meta_data,
 -- e o restante deste arquivo só ajusta o invite_code para um valor fixo e
 -- povoa os dados de biblioteca/execução. Senha de todos os usuários: "demo1234".

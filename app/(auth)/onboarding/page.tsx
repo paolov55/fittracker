@@ -1,15 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCurrentProfile } from "@/lib/hooks";
-import { firstName } from "@/lib/format";
+import {
+  firstName,
+  formatWeight,
+  formatHeight,
+  toKg,
+  toCm,
+  toDisplayWeight,
+  toDisplayHeight,
+  type WeightUnit,
+  type HeightUnit,
+} from "@/lib/format";
 import { ChevronLeftIcon, CheckIcon } from "@/components/icons";
-import { Chip, PrimaryButton, TextField } from "@/components/ui/primitives";
+import { Chip, PrimaryButton, TextField, Segmented } from "@/components/ui/primitives";
 
 type Goal = "gain_muscle" | "lose_weight" | "maintain" | "endurance";
 type Exp = "beginner" | "intermediate" | "advanced";
+type ExpId = "never" | "lt1y" | "1to3y" | "gt3y";
 
 const GOAL_OPTIONS: { value: Goal; label: string; sub: string }[] = [
   {
@@ -34,12 +45,22 @@ const GOAL_OPTIONS: { value: Goal; label: string; sub: string }[] = [
   },
 ];
 
-const EXP_OPTIONS: { value: Exp; label: string }[] = [
-  { value: "beginner", label: "Nunca treinei" },
-  { value: "beginner", label: "Menos de 1 ano" },
-  { value: "intermediate", label: "De 1 a 3 anos" },
-  { value: "advanced", label: "Mais de 3 anos" },
+// Ids distintos por opção — evita que duas respostas com o mesmo nível
+// (ex: "beginner") acendam ambas ao mesmo tempo. O nível salvo vem de
+// EXP_TO_LEVEL.
+const EXP_OPTIONS: { value: ExpId; label: string }[] = [
+  { value: "never", label: "Nunca treinei" },
+  { value: "lt1y", label: "Menos de 1 ano" },
+  { value: "1to3y", label: "De 1 a 3 anos" },
+  { value: "gt3y", label: "Mais de 3 anos" },
 ];
+
+const EXP_TO_LEVEL: Record<ExpId, Exp> = {
+  never: "beginner",
+  lt1y: "beginner",
+  "1to3y": "intermediate",
+  gt3y: "advanced",
+};
 
 const EQUIP_OPTIONS = [
   "Academia completa",
@@ -60,10 +81,14 @@ const LIMIT_OPTIONS = [
 
 interface Answers {
   goal: Goal | null;
-  exp: Exp | null;
+  exp: ExpId | null;
+  weightUnit: WeightUnit;
   weight: string;
   goalWeight: string;
+  heightUnit: HeightUnit;
   height: string;
+  heightFeet: string;
+  heightInches: string;
   equip: string[];
   limits: string[];
   isTrainer: boolean | null;
@@ -71,6 +96,15 @@ interface Answers {
 }
 
 const TOTAL_STEPS = 7;
+
+function parseNum(s: string): number | null {
+  const n = parseFloat(s.replace(",", "."));
+  return Number.isNaN(n) ? null : n;
+}
+
+function fmtInput(n: number): string {
+  return (Math.round(n * 10) / 10).toString();
+}
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -84,9 +118,13 @@ export default function OnboardingPage() {
   const [answers, setAnswers] = useState<Answers>({
     goal: null,
     exp: null,
+    weightUnit: "kg",
     weight: "70",
     goalWeight: "65",
+    heightUnit: "cm",
     height: "168",
+    heightFeet: "5",
+    heightInches: "6",
     equip: [],
     limits: [],
     isTrainer: null,
@@ -106,6 +144,14 @@ export default function OnboardingPage() {
 
   const pct = ((step + (done ? 1 : 0)) / TOTAL_STEPS) * 100;
 
+  // Valores finais, sempre em kg/cm — usados tanto no envio quanto no resumo.
+  const weightKg = toKg(parseNum(answers.weight) ?? toDisplayWeight(70, answers.weightUnit), answers.weightUnit);
+  const goalWeightKg = toKg(parseNum(answers.goalWeight) ?? toDisplayWeight(65, answers.weightUnit), answers.weightUnit);
+  const heightCm =
+    answers.heightUnit === "cm"
+      ? parseNum(answers.height) ?? 168
+      : toCm((parseNum(answers.heightFeet) ?? 5) * 12 + (parseNum(answers.heightInches) ?? 6), "ft");
+
   function toggleMulti(key: "equip" | "limits", value: string) {
     setAnswers((a) => {
       const list = a[key];
@@ -114,6 +160,38 @@ export default function OnboardingPage() {
         ...a,
         [key]: has ? list.filter((v) => v !== value) : [...list, value],
       };
+    });
+  }
+
+  function setWeightUnit(unit: WeightUnit) {
+    setAnswers((a) => {
+      if (unit === a.weightUnit) return a;
+      const wKg = toKg(parseNum(a.weight) ?? 70, a.weightUnit);
+      const gKg = toKg(parseNum(a.goalWeight) ?? 65, a.weightUnit);
+      return {
+        ...a,
+        weightUnit: unit,
+        weight: fmtInput(toDisplayWeight(wKg, unit)),
+        goalWeight: fmtInput(toDisplayWeight(gKg, unit)),
+      };
+    });
+  }
+
+  function setHeightUnit(unit: HeightUnit) {
+    setAnswers((a) => {
+      if (unit === a.heightUnit) return a;
+      if (unit === "ft") {
+        const cm = parseNum(a.height) ?? 168;
+        const totalIn = toDisplayHeight(cm, "ft");
+        return {
+          ...a,
+          heightUnit: unit,
+          heightFeet: String(Math.floor(totalIn / 12)),
+          heightInches: String(Math.round(totalIn % 12)),
+        };
+      }
+      const totalIn = (parseNum(a.heightFeet) ?? 5) * 12 + (parseNum(a.heightInches) ?? 6);
+      return { ...a, heightUnit: unit, height: String(Math.round(toCm(totalIn, "ft"))) };
     });
   }
 
@@ -140,10 +218,12 @@ export default function OnboardingPage() {
   function finish() {
     completeOnboarding({
       goal: answers.goal,
-      experience_level: answers.exp,
-      weight_kg: parseFloat(answers.weight) || 70,
-      goal_weight_kg: parseFloat(answers.goalWeight) || 65,
-      height_cm: parseFloat(answers.height) || 168,
+      experience_level: answers.exp ? EXP_TO_LEVEL[answers.exp] : null,
+      weight_kg: weightKg,
+      goal_weight_kg: goalWeightKg,
+      height_cm: heightCm,
+      weight_unit: answers.weightUnit,
+      height_unit: answers.heightUnit,
       equipment: answers.equip,
       limitations: answers.limits,
       isTrainer: !!answers.isTrainer,
@@ -192,8 +272,11 @@ export default function OnboardingPage() {
               "Experiência",
               EXP_OPTIONS.find((e) => e.value === answers.exp)?.label ?? "—",
             ],
-            ["Peso", `${answers.weight} kg → ${answers.goalWeight} kg`],
-            ["Altura", `${answers.height} cm`],
+            [
+              "Peso",
+              `${formatWeight(weightKg, answers.weightUnit)} → ${formatWeight(goalWeightKg, answers.weightUnit)}`,
+            ],
+            ["Altura", formatHeight(heightCm, answers.heightUnit)],
             ["Equipamento", equipText],
             [
               "Perfil",
@@ -256,7 +339,7 @@ export default function OnboardingPage() {
           sub="Isso define o ponto de partida das cargas."
           options={EXP_OPTIONS}
           value={answers.exp}
-          onChange={(v) => setAnswers((a) => ({ ...a, exp: v as Exp }))}
+          onChange={(v) => setAnswers((a) => ({ ...a, exp: v as ExpId }))}
         />
       )}
 
@@ -265,10 +348,20 @@ export default function OnboardingPage() {
           <StepHeader
             title="Peso atual e meta"
             sub="Você acompanha essa evolução na tela inicial."
+            right={
+              <Segmented
+                options={[
+                  { value: "kg", label: "kg" },
+                  { value: "lb", label: "lb" },
+                ]}
+                value={answers.weightUnit}
+                onChange={setWeightUnit}
+              />
+            }
           />
           <div className="flex gap-3">
             <TextField
-              label="Peso atual (kg)"
+              label={`Peso atual (${answers.weightUnit})`}
               inputMode="decimal"
               value={answers.weight}
               onChange={(e) =>
@@ -279,7 +372,7 @@ export default function OnboardingPage() {
               }
             />
             <TextField
-              label="Meta (kg)"
+              label={`Meta (${answers.weightUnit})`}
               inputMode="decimal"
               value={answers.goalWeight}
               onChange={(e) =>
@@ -298,18 +391,55 @@ export default function OnboardingPage() {
           <StepHeader
             title="Qual sua altura?"
             sub="Serve para calcular indicadores de composição."
-          />
-          <TextField
-            label="Altura (cm)"
-            inputMode="decimal"
-            value={answers.height}
-            onChange={(e) =>
-              setAnswers((a) => ({
-                ...a,
-                height: e.target.value.replace(/[^\d.,]/g, ""),
-              }))
+            right={
+              <Segmented
+                options={[
+                  { value: "cm", label: "cm" },
+                  { value: "ft", label: "ft" },
+                ]}
+                value={answers.heightUnit}
+                onChange={setHeightUnit}
+              />
             }
           />
+          {answers.heightUnit === "cm" ? (
+            <TextField
+              label="Altura (cm)"
+              inputMode="decimal"
+              value={answers.height}
+              onChange={(e) =>
+                setAnswers((a) => ({
+                  ...a,
+                  height: e.target.value.replace(/[^\d.,]/g, ""),
+                }))
+              }
+            />
+          ) : (
+            <div className="flex gap-3">
+              <TextField
+                label="Pés"
+                inputMode="numeric"
+                value={answers.heightFeet}
+                onChange={(e) =>
+                  setAnswers((a) => ({
+                    ...a,
+                    heightFeet: e.target.value.replace(/\D/g, ""),
+                  }))
+                }
+              />
+              <TextField
+                label="Polegadas"
+                inputMode="numeric"
+                value={answers.heightInches}
+                onChange={(e) =>
+                  setAnswers((a) => ({
+                    ...a,
+                    heightInches: e.target.value.replace(/\D/g, ""),
+                  }))
+                }
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -442,11 +572,22 @@ export default function OnboardingPage() {
   );
 }
 
-function StepHeader({ title, sub }: { title: string; sub: string }) {
+function StepHeader({
+  title,
+  sub,
+  right,
+}: {
+  title: string;
+  sub: string;
+  right?: ReactNode;
+}) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <h1 className="text-2xl font-semibold">{title}</h1>
-      <p className="text-base text-muted">{sub}</p>
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-1.5">
+        <h1 className="text-2xl font-semibold">{title}</h1>
+        <p className="text-base text-muted">{sub}</p>
+      </div>
+      {right && <div className="mt-1 shrink-0">{right}</div>}
     </div>
   );
 }
@@ -470,7 +611,7 @@ function StepOptions({
       <div className="flex flex-col gap-3">
         {options.map((opt) => (
           <button
-            key={opt.label}
+            key={opt.value}
             onClick={() => onChange(opt.value)}
             className="rounded-xl border-2 px-4 py-3.5 text-left transition-colors"
             style={{

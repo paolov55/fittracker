@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCurrentProfile, useRole, useStudentDetails, useTrainerDetails } from "@/lib/hooks";
-import { firstName, formatWeight } from "@/lib/format";
+import { firstName, formatWeight, toDisplayWeight, toKg } from "@/lib/format";
 import { Screen, Header, Card, Eyebrow, InitialsAvatar, DangerButton, EmptyDashed, ScreenSkeleton, TextField, PrimaryButton } from "@/components/ui/primitives";
 import { Modal, ModalButton, Sheet } from "@/components/ui/overlays";
 import { CheckIcon, CopyIcon, ChevronRightIcon, CameraIcon } from "@/components/icons";
@@ -29,6 +29,7 @@ export default function PerfilPage() {
 
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [unitOpen, setUnitOpen] = useState(false);
+  const [heightUnitOpen, setHeightUnitOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalInput, setGoalInput] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -39,6 +40,7 @@ export default function PerfilPage() {
   const myTrainerLink = trainerStudents.find((ts) => ts.student_id === profile.id && ts.status === "active");
   const trainerProfile = myTrainerLink ? profiles.find((p) => p.id === myTrainerLink.trainer_id) : null;
   const weightUnit = student?.weight_unit ?? "kg";
+  const heightUnit = student?.height_unit ?? "cm";
 
   function copyCode() {
     navigator.clipboard?.writeText(profile!.invite_code).catch(() => {});
@@ -61,9 +63,15 @@ export default function PerfilPage() {
     showToast(res.ok ? "Unidade atualizada" : (res.message ?? "Erro ao salvar"));
   }
 
+  async function pickHeightUnit(unit: "cm" | "ft") {
+    setHeightUnitOpen(false);
+    const res = await updateProfile({ heightUnit: unit });
+    showToast(res.ok ? "Unidade atualizada" : (res.message ?? "Erro ao salvar"));
+  }
+
   function openGoal() {
     const kg = student?.goal_weight_kg;
-    const displayed = kg ? (weightUnit === "lb" ? kg * 2.20462 : kg) : null;
+    const displayed = kg ? toDisplayWeight(kg, weightUnit) : null;
     setGoalInput(displayed ? displayed.toFixed(1) : "");
     setGoalOpen(true);
   }
@@ -74,7 +82,7 @@ export default function PerfilPage() {
       showToast("Informe um peso válido");
       return;
     }
-    const kg = weightUnit === "lb" ? entered / 2.20462 : entered;
+    const kg = toKg(entered, weightUnit);
     const res = await updateProfile({ goalWeightKg: kg });
     setGoalOpen(false);
     showToast(res.ok ? "Meta de peso atualizada" : (res.message ?? "Erro ao salvar"));
@@ -195,9 +203,19 @@ export default function PerfilPage() {
           onClick={() => setUnitOpen(true)}
         />
         <SettingsRow
+          label="Unidade de altura"
+          value={heightUnit}
+          onClick={() => setHeightUnitOpen(true)}
+        />
+        <SettingsRow
           label="Meta de peso"
           value={student?.goal_weight_kg ? formatWeight(student.goal_weight_kg, weightUnit) : "—"}
           onClick={openGoal}
+        />
+        <SettingsRow
+          label="Política de privacidade"
+          value=""
+          onClick={() => router.push("/privacidade")}
         />
       </div>
 
@@ -244,6 +262,21 @@ export default function PerfilPage() {
             >
               <span className="text-md font-medium">{unit === "kg" ? "Quilogramas (kg)" : "Libras (lb)"}</span>
               {weightUnit === unit && <CheckIcon size={16} className="text-accent" />}
+            </button>
+          ))}
+        </div>
+      </Sheet>
+
+      <Sheet open={heightUnitOpen} onClose={() => setHeightUnitOpen(false)} title="Unidade de altura">
+        <div className="flex flex-col gap-2.5">
+          {(["cm", "ft"] as const).map((unit) => (
+            <button
+              key={unit}
+              onClick={() => pickHeightUnit(unit)}
+              className="flex items-center justify-between rounded-2xl border border-border px-4 py-3.5 text-left"
+            >
+              <span className="text-md font-medium">{unit === "cm" ? "Centímetros (cm)" : "Pés e polegadas (ft)"}</span>
+              {heightUnit === unit && <CheckIcon size={16} className="text-accent" />}
             </button>
           ))}
         </div>

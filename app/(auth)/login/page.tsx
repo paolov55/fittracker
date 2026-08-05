@@ -100,6 +100,10 @@ export default function LoginPage() {
           Criar conta
         </Link>
       </p>
+
+      <Link href="/privacidade" className="text-center text-sm text-muted">
+        Política de privacidade
+      </Link>
     </div>
   );
 }

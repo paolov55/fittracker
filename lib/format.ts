@@ -50,16 +50,72 @@ export function formatKg(kg: number): string {
   return kg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
-const KG_TO_LB = 2.20462;
+export type WeightUnit = "kg" | "lb";
+export type HeightUnit = "cm" | "ft";
+
+export const KG_TO_LB = 2.20462;
+const CM_TO_IN = 1 / 2.54;
+
+/** Converte um peso em kg (sempre a unidade de persistência) para a unidade de exibição. */
+export function toDisplayWeight(kg: number, unit: WeightUnit): number {
+  return unit === "lb" ? kg * KG_TO_LB : kg;
+}
+
+/** Converte um valor digitado na unidade de exibição de volta para kg (persistência). */
+export function toKg(value: number, unit: WeightUnit): number {
+  return unit === "lb" ? value / KG_TO_LB : value;
+}
 
 /**
  * Formata um peso (sempre armazenado em kg) na unidade escolhida pelo
  * usuário, incluindo o sufixo. A persistência nunca muda — isto é só
  * apresentação.
  */
-export function formatWeight(kg: number, unit: "kg" | "lb" = "kg"): string {
-  const value = unit === "lb" ? kg * KG_TO_LB : kg;
+export function formatWeight(kg: number, unit: WeightUnit = "kg"): string {
+  const value = toDisplayWeight(kg, unit);
   return `${value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${unit}`;
+}
+
+/** Converte uma altura em cm (sempre a unidade de persistência) para polegadas totais. */
+export function toDisplayHeight(cm: number, unit: HeightUnit): number {
+  return unit === "ft" ? cm * CM_TO_IN : cm;
+}
+
+/** Converte um valor digitado na unidade de exibição de volta para cm (persistência). */
+export function toCm(value: number, unit: HeightUnit): number {
+  return unit === "ft" ? value / CM_TO_IN : value;
+}
+
+/**
+ * Formata uma altura (sempre armazenada em cm) na unidade escolhida pelo
+ * usuário. Em `ft` usa o formato pés+polegadas (5'6"), como as pessoas que
+ * usam o sistema imperial realmente leem — não decimal.
+ */
+export function formatHeight(cm: number, unit: HeightUnit = "cm"): string {
+  if (unit === "cm") {
+    return `${Math.round(cm)} cm`;
+  }
+  const totalInches = toDisplayHeight(cm, "ft");
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches % 12);
+  return `${feet}'${inches}"`;
+}
+
+export function unitLabel(unit: WeightUnit | HeightUnit): string {
+  return unit;
+}
+
+/**
+ * Formata um volume grande (soma de kg levantados) na unidade escolhida,
+ * agrupando em toneladas (kg) ou milhares de libras (lb) — a magnitude de
+ * "kg desde o início" não faz sentido em unidade fina para totais mensais.
+ */
+export function formatVolume(kg: number, unit: WeightUnit = "kg"): string {
+  if (unit === "kg") {
+    return `${(kg / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t`;
+  }
+  const lb = toDisplayWeight(kg, "lb");
+  return `${(lb / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mil lb`;
 }
 
 export function formatWeekday(dateObj = new Date()): string {

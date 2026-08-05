@@ -32,9 +32,10 @@ export interface StudentDetails {
   experience_level: ExperienceLevel | null;
   equipment: string[];
   limitations: string[];
-  // adicionada em 0003_profile_editing.sql — só apresentação; peso sempre
-  // persiste em kg.
+  // Só apresentação; peso sempre persiste em kg (ver supabase/schema.sql).
   weight_unit?: "kg" | "lb";
+  // Só apresentação; altura sempre persiste em cm (ver supabase/schema.sql).
+  height_unit?: "cm" | "ft";
 }
 
 export interface TrainerDetails {
@@ -80,7 +81,7 @@ export interface Program {
   visibility: ProgramVisibility;
   published_at: string | null;
   created_at: string;
-  // colunas adicionadas em 0002_app_extensions.sql
+  // colunas de metadados de exibição, sem uso nas policies de RLS
   cover_url?: string | null;
   community_meta?: string;
   community_desc?: string;
@@ -108,8 +109,8 @@ export interface Workout {
 }
 
 /**
- * `warmup`, `alt_exercise_id` e `superset_group` foram adicionados em
- * 0002_app_extensions.sql (não existiam no schema.sql original).
+ * `warmup`, `alt_exercise_id` e `superset_group` não existiam no schema
+ * original do design — foram adicionados depois (ver supabase/schema.sql).
  */
 export interface WorkoutExercise {
   id: string;
@@ -146,7 +147,7 @@ export interface SessionSet {
   kg_done: number | null;
   completed: boolean;
   completed_at: string | null;
-  // adicionada em 0002_app_extensions.sql
+  // não existia no schema original do design (ver supabase/schema.sql)
   kind?: "warm" | "work";
 }
 

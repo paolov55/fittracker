@@ -27,6 +27,25 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+// Mensagens do Supabase Auth vêm em inglês (error.message); traduzimos as
+// mais comuns para o toast não vazar texto técnico para o usuário.
+function mapAuthError(message: string | undefined): string {
+  if (!message) return "Não foi possível criar a conta";
+  const m = message.toLowerCase();
+  if (m.includes("already registered") || m.includes("already exists")) {
+    return "Este e-mail já tem conta. Tente entrar.";
+  }
+  if (m.includes("password should be at least") || m.includes("password is too short")) {
+    return "Senha muito curta";
+  }
+  if (m.includes("invalid email")) return "E-mail inválido";
+  if (m.includes("database error saving new user")) {
+    return "Não foi possível criar a conta. Tente de novo em instantes.";
+  }
+  if (m.includes("rate limit")) return "Muitas tentativas. Aguarde um instante e tente de novo.";
+  return "Não foi possível criar a conta";
+}
+
 // ── Progresso de execução (run) ─────────────────────────────────────────
 export interface RunSetState {
   setIndex: number;
@@ -135,6 +154,8 @@ interface AppState {
     weight_kg: number;
     goal_weight_kg: number;
     height_cm: number;
+    weight_unit: "kg" | "lb";
+    height_unit: "cm" | "ft";
     equipment: string[];
     limitations: string[];
     isTrainer: boolean;
@@ -144,9 +165,11 @@ interface AppState {
   updateProfile: (data: {
     avatarUrl?: string | null;
     weightUnit?: "kg" | "lb";
+    heightUnit?: "cm" | "ft";
     goalWeightKg?: number;
   }) => Promise<{ ok: boolean; message?: string }>;
   uploadAvatar: (file: File) => Promise<{ ok: boolean; message?: string }>;
+  addBodyMetric: (weightKg: number) => Promise<{ ok: boolean; message?: string }>;
 
   createExercise: (name: string, muscles: string[], equipment: string) => Exercise;
 
@@ -274,9 +297,14 @@ export const useAppStore = create<AppState>()(
       login: async (email, password) => {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error || !data.session) return false;
-        const tables = await hydrateFromSupabase();
-        const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.session.user.id);
-        set({ ...tables, currentUserId: data.session.user.id, hasCoach, hasInvite });
+        try {
+          const tables = await hydrateFromSupabase();
+          const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.session.user.id);
+          set({ ...tables, currentUserId: data.session.user.id, hasCoach, hasInvite });
+        } catch {
+          get().showToast("Entrou, mas não foi possível carregar seus dados agora");
+          set({ currentUserId: data.session.user.id });
+        }
         return true;
       },
       logout: () => {
@@ -290,13 +318,18 @@ export const useAppStore = create<AppState>()(
           options: { data: { full_name: fullName, role } },
         });
         if (error || !data.user) {
-          get().showToast(error?.message ?? "Não foi possível criar a conta");
+          get().showToast(mapAuthError(error?.message));
           return null;
         }
         if (data.session) {
-          const tables = await hydrateFromSupabase();
-          const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.user.id);
-          set({ ...tables, currentUserId: data.user.id, hasCoach, hasInvite });
+          try {
+            const tables = await hydrateFromSupabase();
+            const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.user.id);
+            set({ ...tables, currentUserId: data.user.id, hasCoach, hasInvite });
+          } catch {
+            get().showToast("Conta criada, mas não foi possível carregar seus dados agora");
+            set({ currentUserId: data.user.id });
+          }
         } else {
           // confirmação de e-mail pendente: segue com um perfil local otimista
           get().showToast("Confirme seu e-mail para concluir o cadastro");
@@ -384,6 +417,7 @@ export const useAppStore = create<AppState>()(
       completeOnboarding: (data) => {
         const userId = get().currentUserId;
         if (!userId) return;
+        const metricId = uid();
         set((s) => {
           const exists = s.studentDetails.some((d) => d.profile_id === userId);
           const details: StudentDetails = {
@@ -395,6 +429,8 @@ export const useAppStore = create<AppState>()(
             experience_level: data.experience_level,
             equipment: data.equipment,
             limitations: data.limitations,
+            weight_unit: data.weight_unit,
+            height_unit: data.height_unit,
           };
           const studentDetails = exists
             ? s.studentDetails.map((d) => (d.profile_id === userId ? details : d))
@@ -415,7 +451,11 @@ export const useAppStore = create<AppState>()(
               },
             ];
           }
-          return { studentDetails, profiles, trainerDetails };
+          const bodyMetrics = [
+            ...s.bodyMetrics,
+            { id: metricId, student_id: userId, recorded_at: nowIso(), weight_kg: data.weight_kg },
+          ];
+          return { studentDetails, profiles, trainerDetails, bodyMetrics };
         });
 
         (async () => {
@@ -428,8 +468,18 @@ export const useAppStore = create<AppState>()(
             experience_level: data.experience_level,
             equipment: data.equipment,
             limitations: data.limitations,
+            weight_unit: data.weight_unit,
+            height_unit: data.height_unit,
           });
           if (error) get().showToast("Não foi possível salvar seu perfil");
+
+          const { error: metricError } = await supabase.from("body_metrics").insert({
+            id: metricId,
+            student_id: userId,
+            recorded_at: nowIso(),
+            weight_kg: data.weight_kg,
+          });
+          if (metricError) get().showToast("Não foi possível salvar seu peso inicial");
 
           if (data.isTrainer) {
             await supabase.from("profiles").update({ role: "trainer" }).eq("id", userId);
@@ -462,10 +512,15 @@ export const useAppStore = create<AppState>()(
           }));
         }
 
-        if (data.weightUnit !== undefined || data.goalWeightKg !== undefined) {
+        if (
+          data.weightUnit !== undefined ||
+          data.heightUnit !== undefined ||
+          data.goalWeightKg !== undefined
+        ) {
           const current = get().studentDetails.find((d) => d.profile_id === userId);
           const patch: Partial<StudentDetails> = {};
           if (data.weightUnit !== undefined) patch.weight_unit = data.weightUnit;
+          if (data.heightUnit !== undefined) patch.height_unit = data.heightUnit;
           if (data.goalWeightKg !== undefined) patch.goal_weight_kg = data.goalWeightKg;
 
           const { error } = await supabase
@@ -485,6 +540,7 @@ export const useAppStore = create<AppState>()(
               equipment: current?.equipment ?? [],
               limitations: current?.limitations ?? [],
               weight_unit: current?.weight_unit ?? "kg",
+              height_unit: current?.height_unit ?? "cm",
               ...patch,
             };
             return {
@@ -494,6 +550,34 @@ export const useAppStore = create<AppState>()(
             };
           });
         }
+
+        return { ok: true };
+      },
+
+      addBodyMetric: async (weightKg) => {
+        const userId = get().currentUserId;
+        if (!userId) return { ok: false, message: "Sessão inválida" };
+
+        const metric: BodyMetric = {
+          id: uid(),
+          student_id: userId,
+          recorded_at: nowIso(),
+          weight_kg: weightKg,
+        };
+        set((s) => ({ bodyMetrics: [...s.bodyMetrics, metric] }));
+
+        const { error } = await supabase.from("body_metrics").insert(metric);
+        if (error) return { ok: false, message: "Não foi possível registrar o peso" };
+
+        const current = get().studentDetails.find((d) => d.profile_id === userId);
+        await supabase
+          .from("student_details")
+          .upsert({ profile_id: userId, ...current, weight_kg: weightKg });
+        set((s) => ({
+          studentDetails: s.studentDetails.map((d) =>
+            d.profile_id === userId ? { ...d, weight_kg: weightKg } : d,
+          ),
+        }));
 
         return { ok: true };
       },

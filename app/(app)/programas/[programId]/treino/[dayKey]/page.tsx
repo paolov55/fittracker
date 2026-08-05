@@ -3,7 +3,8 @@
 import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { WEEK, restLabel } from "@/lib/format";
+import { useCurrentProfile, useStudentDetails } from "@/lib/hooks";
+import { WEEK, restLabel, toDisplayWeight, toKg, type WeightUnit } from "@/lib/format";
 import type { DayKey } from "@/lib/db/types";
 import { Screen, Header, Card, Stepper, ScreenSkeleton } from "@/components/ui/primitives";
 import { Sheet } from "@/components/ui/overlays";
@@ -43,6 +44,9 @@ export default function BuilderPage({
   const { programId, dayKey } = use(params);
   const day = WEEK.find((d) => d.k === (dayKey as DayKey));
   const router = useRouter();
+  const profile = useCurrentProfile();
+  const ownStudentDetails = useStudentDetails(profile?.id);
+  const weightUnit: WeightUnit = ownStudentDetails?.weight_unit ?? "kg";
 
   const programs = useAppStore((s) => s.programs);
   const workouts = useAppStore((s) => s.workouts);
@@ -335,17 +339,17 @@ export default function BuilderPage({
                   />
                 </label>
                 <label className="flex-1 flex flex-col gap-1">
-                  <span className="text-xs text-muted">Carga (kg)</span>
+                  <span className="text-xs text-muted">Carga ({weightUnit})</span>
                   <input
                     inputMode="decimal"
-                    value={d.target_kg}
-                    onChange={(e) =>
-                      updateDraft(d.key, {
-                        target_kg:
-                          parseFloat(e.target.value.replace(/[^\d.,]/g, "")) ||
-                          0,
-                      })
-                    }
+                    value={Math.round(toDisplayWeight(d.target_kg, weightUnit) * 10) / 10}
+                    onChange={(e) => {
+                      const entered =
+                        parseFloat(
+                          e.target.value.replace(/[^\d.,]/g, "").replace(",", "."),
+                        ) || 0;
+                      updateDraft(d.key, { target_kg: toKg(entered, weightUnit) });
+                    }}
                     className="h-10 rounded-lg border border-border bg-surface px-2.5 text-sm"
                   />
                 </label>

@@ -3,8 +3,8 @@
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { useCurrentProfile } from "@/lib/hooks";
-import { clock, restLabel } from "@/lib/format";
+import { useCurrentProfile, useStudentDetails } from "@/lib/hooks";
+import { clock, restLabel, toDisplayWeight, toKg, type WeightUnit } from "@/lib/format";
 import { Modal, ModalButton } from "@/components/ui/overlays";
 import { ScreenSkeleton } from "@/components/ui/primitives";
 import {
@@ -25,6 +25,8 @@ export default function RunPage({
   const { workoutId } = use(params);
   const router = useRouter();
   const profile = useCurrentProfile();
+  const student = useStudentDetails(profile?.id);
+  const weightUnit = student?.weight_unit ?? "kg";
 
   const workouts = useAppStore((s) => s.workouts);
   const workoutExercises = useAppStore((s) => s.workoutExercises);
@@ -148,6 +150,7 @@ export default function RunPage({
               exercises.find((e) => e.id === id)?.muscle_group ?? ""
             }
             sets={activeRun.sets[we.id] ?? []}
+            weightUnit={weightUnit}
             variant={activeRun.variant[we.id] ?? 0}
             onVariant={(v) => setRunVariant(we.id, v)}
             onToggleSet={(idx) =>
@@ -314,6 +317,7 @@ function ExerciseRunCard({
   exerciseName,
   muscleOf,
   sets,
+  weightUnit,
   variant,
   onVariant,
   onToggleSet,
@@ -327,6 +331,7 @@ function ExerciseRunCard({
   exerciseName: (id: string) => string;
   muscleOf: (id: string) => string;
   sets: import("@/lib/store").RunSetState[];
+  weightUnit: WeightUnit;
   variant: 0 | 1;
   onVariant: (v: 0 | 1) => void;
   onToggleSet: (idx: number) => void;
@@ -444,13 +449,12 @@ function ExerciseRunCard({
                   {st.completed ? <CheckIcon size={15} /> : label}
                 </button>
                 <div className="flex items-center gap-1 rounded-lg border border-border bg-surface2 px-2 h-10">
-                  <input
-                    value={st.kg}
-                    onChange={(e) => onField(st.setIndex, "kg", e.target.value)}
-                    inputMode="decimal"
-                    className="w-full bg-transparent text-sm outline-none"
+                  <WeightField
+                    kg={st.kg}
+                    unit={weightUnit}
+                    onChangeKg={(v) => onField(st.setIndex, "kg", v)}
                   />
-                  <span className="text-xs text-muted">kg</span>
+                  <span className="text-xs text-muted">{weightUnit}</span>
                 </div>
                 <div className="flex items-center gap-1 rounded-lg border border-border bg-surface2 px-2 h-10">
                   <input
@@ -492,5 +496,46 @@ function ExerciseRunCard({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Campo de carga da série. `kg` é sempre a fonte da verdade (o que vira
+ * `session_sets.kg_done`); aqui só a exibição/entrada é convertida para a
+ * unidade escolhida pelo usuário. Mantemos um texto local em vez de derivar
+ * a exibição de `kg` a cada render — reformatar a cada tecla (arredondar,
+ * trocar vírgula por ponto) atrapalharia digitar decimais em lb.
+ */
+function WeightField({
+  kg,
+  unit,
+  onChangeKg,
+}: {
+  kg: string;
+  unit: WeightUnit;
+  onChangeKg: (kgValue: string) => void;
+}) {
+  const [text, setText] = useState(() =>
+    unit === "kg"
+      ? kg
+      : String(Math.round(toDisplayWeight(parseFloat(kg.replace(",", ".")) || 0, unit) * 10) / 10),
+  );
+
+  return (
+    <input
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d.,]/g, "");
+        setText(raw);
+        if (unit === "kg") {
+          onChangeKg(raw);
+          return;
+        }
+        const num = parseFloat(raw.replace(",", ".")) || 0;
+        onChangeKg(String(toKg(num, unit)));
+      }}
+      inputMode="decimal"
+      className="w-full bg-transparent text-sm outline-none"
+    />
   );
 }

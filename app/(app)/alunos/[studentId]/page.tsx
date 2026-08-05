@@ -3,7 +3,8 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { firstName, formatDate, weekdayLabel } from "@/lib/format";
+import { firstName, formatDate, weekdayLabel, formatWeight, formatVolume } from "@/lib/format";
+import { useStudentDetails } from "@/lib/hooks";
 import { startOfWeek } from "@/lib/workout";
 import { Screen, Header, Card, Eyebrow, StatCard, InitialsAvatar, DangerButton, IconTile, ScreenSkeleton } from "@/components/ui/primitives";
 import { Modal, ModalButton } from "@/components/ui/overlays";
@@ -28,6 +29,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
 
   const student = profiles.find((p) => p.id === studentId);
   const link = trainerStudents.find((ts) => ts.student_id === studentId);
+  const studentDetails = useStudentDetails(studentId);
+  const weightUnit = studentDetails?.weight_unit ?? "kg";
 
   if (!student) return <ScreenSkeleton />;
 
@@ -46,7 +49,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
     .sort((a, b) => b.started_at.localeCompare(a.started_at));
   const thisWeek = mySessions.filter((s) => new Date(s.started_at) >= weekStart).length;
   const thisMonth = mySessions.filter((s) => new Date(s.started_at) >= monthStart);
-  const volumeMonthTons = thisMonth.reduce((sum, s) => sum + (s.total_volume_kg ?? 0), 0) / 1000;
+  const volumeMonthKg = thisMonth.reduce((sum, s) => sum + (s.total_volume_kg ?? 0), 0);
   const weeklyWorkoutCount = liveProgram
     ? workouts.filter((w) => w.program_id === liveProgram.id && w.day_key).length
     : 0;
@@ -70,7 +73,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
       <div className="flex gap-3">
         <StatCard value={`${thisWeek}/${weeklyWorkoutCount || "–"}`} label="treinos nesta semana" />
         <StatCard value={thisMonth.length} label="treinos no mês" />
-        <StatCard value={`${volumeMonthTons.toFixed(1).replace(".", ",")} t`} label="volume no mês" />
+        <StatCard value={formatVolume(volumeMonthKg, weightUnit)} label="volume no mês" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -149,7 +152,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
         {mySessions.slice(0, 5).map((s) => {
           const workout = workouts.find((w) => w.id === s.workout_id);
           const minutes = Math.round((s.duration_seconds ?? 0) / 60);
-          const volume = Math.round(s.total_volume_kg ?? 0).toLocaleString("pt-BR");
           return (
             <Card key={s.id} className="flex items-center gap-3">
               <IconTile>
@@ -158,7 +160,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
               <div className="flex-1 min-w-0">
                 <div className="text-md font-medium truncate">{workout?.name ?? "Treino"}</div>
                 <div className="text-sm text-muted truncate">
-                  {minutes} min · {volume} kg
+                  {minutes} min · {formatWeight(s.total_volume_kg ?? 0, weightUnit)}
                 </div>
               </div>
               <span className="shrink-0 text-sm text-muted capitalize">{weekdayLabel(s.started_at)}</span>

@@ -2,23 +2,18 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAppStore } from "@/lib/store";
+import { scorePassword } from "@/lib/password";
 import { ChevronLeftIcon } from "@/components/icons";
 import { PrimaryButton, TextField } from "@/components/ui/primitives";
 
-const STRENGTH_LABELS = [
-  "Use pelo menos 8 caracteres",
-  "Senha fraca",
-  "Senha razoável",
-  "Senha forte",
-];
-
-function strengthOf(pass: string) {
-  if (pass.length === 0) return 0;
-  if (pass.length < 6) return 1;
-  if (pass.length < 10) return 2;
-  return 3;
-}
+const STRENGTH_COLOR: Record<number, string> = {
+  1: "var(--danger)",
+  2: "var(--warm)",
+  3: "var(--accent)",
+  4: "var(--accent)",
+};
 
 export default function CadastroPage() {
   const router = useRouter();
@@ -31,13 +26,14 @@ export default function CadastroPage() {
   const [accept, setAccept] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const strength = useMemo(() => strengthOf(pass), [pass]);
+  const strength = useMemo(() => scorePassword(pass, [name, email]), [pass, name, email]);
 
   async function submit() {
     if (!name.trim()) return showToast("Informe seu nome");
     if (!/^\S+@\S+\.\S+$/.test(email)) return showToast("E-mail inválido");
-    if (pass.length < 8) return showToast("A senha precisa de 8 caracteres");
-    if (!accept) return showToast("Aceite os termos para continuar");
+    if (pass.length < 8) return showToast("A senha precisa de pelo menos 8 caracteres");
+    if (strength.score < 2) return showToast(strength.hint || "Escolha uma senha mais forte");
+    if (!accept) return showToast("Aceite a política de privacidade para continuar");
     setLoading(true);
     const id = await signup(name.trim(), email.trim(), pass, "student");
     setLoading(false);
@@ -63,7 +59,7 @@ export default function CadastroPage() {
       <div className="flex flex-col gap-4">
         <TextField
           label="Nome completo"
-          placeholder="Sara Souza"
+          placeholder="Seu nome e sobrenome"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -83,30 +79,43 @@ export default function CadastroPage() {
             onChange={(e) => setPass(e.target.value)}
           />
           <div className="flex gap-1.5">
-            {[0, 1, 2].map((i) => (
+            {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
                 className="h-1 flex-1 rounded-pill"
                 style={{
-                  background: i < strength ? "var(--accent)" : "var(--border)",
+                  background:
+                    i <= strength.score ? STRENGTH_COLOR[strength.score] : "var(--border)",
                 }}
               />
             ))}
           </div>
-          <span className="text-sm text-muted">
-            {STRENGTH_LABELS[strength]}
-          </span>
+          {strength.label && (
+            <span className="text-sm text-muted">
+              {strength.label}
+              {strength.hint ? ` — ${strength.hint}` : ""}
+            </span>
+          )}
         </div>
 
-        <label className="flex items-start gap-2.5">
+        <label htmlFor="accept-privacy" className="flex items-start gap-2.5">
           <input
+            id="accept-privacy"
             type="checkbox"
             checked={accept}
             onChange={(e) => setAccept(e.target.checked)}
             className="mt-0.5 h-5.5 w-5.5 shrink-0 rounded-xs accent-accent"
           />
           <span className="text-sm text-muted">
-            Aceito os termos de uso e a política de privacidade do FitTracker.
+            Aceito a{" "}
+            <Link
+              href="/privacidade"
+              onClick={(e) => e.stopPropagation()}
+              className="font-semibold text-accent"
+            >
+              política de privacidade
+            </Link>{" "}
+            do FitTracker.
           </span>
         </label>
       </div>

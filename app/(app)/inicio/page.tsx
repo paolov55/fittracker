@@ -4,13 +4,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCurrentProfile, useRole } from "@/lib/hooks";
-import { WEEK, formatWeekday, formatKg, firstName } from "@/lib/format";
+import { WEEK, formatWeekday, firstName } from "@/lib/format";
 import { todayKey, startOfWeek } from "@/lib/workout";
+import {
+  sessionsInMonth,
+  sessionsSince,
+  volumeTrend,
+  weeklyVolumeSeries,
+  weeklyStreak,
+  recentPersonalRecords,
+  muscleBalance,
+  daysAgo,
+} from "@/lib/stats";
 import {
   Screen,
   Card,
   Eyebrow,
-  ProgressBar,
   InitialsAvatar,
   IconTile,
   ScreenSkeleton,
@@ -22,6 +31,11 @@ import {
   CheckIcon,
   UsersIcon,
 } from "@/components/icons";
+import { ResumeRunCard } from "@/components/home/ResumeRunCard";
+import { BodyWeightCard } from "@/components/home/BodyWeightCard";
+import { StatsStrip } from "@/components/home/StatsStrip";
+import { PersonalRecordCard } from "@/components/home/PersonalRecordCard";
+import { MuscleBalanceCard } from "@/components/home/MuscleBalanceCard";
 
 export default function InicioPage() {
   const router = useRouter();
@@ -31,8 +45,10 @@ export default function InicioPage() {
   const programs = useAppStore((s) => s.programs);
   const workouts = useAppStore((s) => s.workouts);
   const workoutExercises = useAppStore((s) => s.workoutExercises);
+  const exercises = useAppStore((s) => s.exercises);
   const assignments = useAppStore((s) => s.programAssignments);
   const sessions = useAppStore((s) => s.sessions);
+  const sessionSets = useAppStore((s) => s.sessionSets);
   const bodyMetrics = useAppStore((s) => s.bodyMetrics);
   const trainerStudents = useAppStore((s) => s.trainerStudents);
   const hasInvite = useAppStore((s) => s.hasInvite);
@@ -41,11 +57,14 @@ export default function InicioPage() {
   const declineInvite = useAppStore((s) => s.declineInvite);
   const showToast = useAppStore((s) => s.showToast);
   const profiles = useAppStore((s) => s.profiles);
+  const activeRun = useAppStore((s) => s.activeRun);
   const student = useAppStore((s) =>
     s.studentDetails.find((d) => d.profile_id === profile?.id),
   );
 
   if (!profile) return <ScreenSkeleton />;
+
+  const weightUnit = student?.weight_unit ?? "kg";
 
   const myAssignment = assignments.find(
     (a) => a.student_id === profile.id && a.status === "live",
@@ -76,6 +95,10 @@ export default function InicioPage() {
     ? workoutExercises.filter((we) => we.workout_id === nextWorkout!.id).length
     : 0;
 
+  const activeRunWorkout = activeRun
+    ? workouts.find((w) => w.id === activeRun.workoutId)
+    : null;
+
   const weekStart = startOfWeek();
   const doneThisWeek = new Set(
     sessions
@@ -92,7 +115,24 @@ export default function InicioPage() {
   const myMetrics = bodyMetrics
     .filter((m) => m.student_id === profile.id)
     .sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
-  const latestWeight = myMetrics[myMetrics.length - 1];
+
+  const statsInput = {
+    sessions,
+    sessionSets,
+    workoutExercises,
+    exercises,
+    studentId: profile.id,
+  };
+  const monthlyCount = sessionsInMonth(statsInput).length;
+  const trend = volumeTrend(statsInput);
+  const weeklySeriesKg = weeklyVolumeSeries(statsInput);
+  const streakWeeks = weeklyStreak(statsInput, programWorkouts.length);
+  const personalRecords = recentPersonalRecords(statsInput);
+  const recentSessionCount = sessionsSince(statsInput, daysAgo(30)).length;
+  const balance = recentSessionCount >= 3 ? muscleBalance(statsInput) : [];
+  const hasTrainingHistory = sessions.some(
+    (s) => s.student_id === profile.id && s.status === "completed",
+  );
 
   const myTrainerLink = trainerStudents.find(
     (ts) => ts.student_id === profile.id && ts.status === "active",
@@ -136,6 +176,10 @@ export default function InicioPage() {
           <SlidersIcon size={18} />
         </Link>
       </div>
+
+      {activeRun && activeRunWorkout && (
+        <ResumeRunCard activeRun={activeRun} workoutName={activeRunWorkout.name} />
+      )}
 
       {role === "student" && hasInvite && !hasCoach && inviterProfile && (
         <Card className="border-2 border-accent flex flex-col gap-3">
@@ -260,48 +304,29 @@ export default function InicioPage() {
         </div>
       </Card>
 
-      {role === "student" && latestWeight && student?.goal_weight_kg && (
-        <Card className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <Eyebrow>Peso corporal</Eyebrow>
-            <span className="text-sm text-muted">
-              Meta {formatKg(student.goal_weight_kg)} kg
-            </span>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-semibold tabular-nums">
-              {formatKg(latestWeight.weight_kg)}
-            </span>
-            <span className="text-sm text-muted">kg</span>
-          </div>
-          <ProgressBar
-            value={
-              student.weight_kg && student.goal_weight_kg
-                ? Math.min(
-                    100,
-                    Math.max(
-                      0,
-                      (((myMetrics[0]?.weight_kg ?? latestWeight.weight_kg) -
-                        latestWeight.weight_kg) /
-                        ((myMetrics[0]?.weight_kg ?? latestWeight.weight_kg) -
-                          student.goal_weight_kg || 1)) *
-                        100,
-                    ),
-                  )
-                : 0
-            }
-          />
-          <span className="text-sm text-muted">
-            {(
-              latestWeight.weight_kg -
-              (myMetrics[0]?.weight_kg ?? latestWeight.weight_kg)
-            ).toFixed(1)}{" "}
-            kg desde o início
-            {student.goal_weight_kg &&
-              ` · faltam ${Math.abs(latestWeight.weight_kg - student.goal_weight_kg).toFixed(1)} kg`}
-          </span>
-        </Card>
+      {role === "student" && hasTrainingHistory && (
+        <StatsStrip
+          monthlyCount={monthlyCount}
+          trend={trend}
+          streakWeeks={streakWeeks}
+          weeklySeriesKg={weeklySeriesKg}
+          weightUnit={weightUnit}
+        />
       )}
+
+      {role === "student" && (
+        <BodyWeightCard
+          metrics={myMetrics}
+          goalWeightKg={student?.goal_weight_kg ?? null}
+          weightUnit={weightUnit}
+        />
+      )}
+
+      {role === "student" && (
+        <PersonalRecordCard records={personalRecords} weightUnit={weightUnit} />
+      )}
+
+      {role === "student" && <MuscleBalanceCard balance={balance} />}
 
       {role === "trainer" && (
         <Card

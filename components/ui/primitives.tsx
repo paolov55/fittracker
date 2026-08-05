@@ -344,6 +344,36 @@ export function ProgressBar({
   );
 }
 
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="inline-flex shrink-0 items-center gap-0.5 rounded-xl bg-surface2 p-0.5">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          aria-pressed={value === opt.value}
+          className={`h-7 rounded-[9px] px-3 text-sm font-medium transition-colors ${
+            value === opt.value
+              ? "bg-accent text-white"
+              : "bg-transparent text-muted"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button

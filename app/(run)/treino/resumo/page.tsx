@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { clock, formatKg } from "@/lib/format";
+import { useCurrentProfile, useStudentDetails } from "@/lib/hooks";
+import { clock, formatWeight } from "@/lib/format";
 import { CheckIcon } from "@/components/icons";
 import { InkButton } from "@/components/ui/primitives";
 
@@ -11,6 +12,9 @@ export default function ResumoPage() {
   const router = useRouter();
   const summary = useAppStore((s) => s.lastSummary);
   const clearSummary = useAppStore((s) => s.clearSummary);
+  const profile = useCurrentProfile();
+  const student = useStudentDetails(profile?.id);
+  const weightUnit = student?.weight_unit ?? "kg";
 
   useEffect(() => {
     if (!summary) router.replace("/inicio");
@@ -21,7 +25,7 @@ export default function ResumoPage() {
   const rows: [string, string][] = [
     ["Duração", clock(summary.duration)],
     ["Séries concluídas", String(summary.setsCompleted)],
-    ["Volume total", `${formatKg(summary.volume)} kg`],
+    ["Volume total", formatWeight(summary.volume, weightUnit)],
     ["Programa", summary.programName],
   ];
 

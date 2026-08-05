@@ -1,5 +1,10 @@
 -- ============================================================================
 -- Fittracker — Supabase / Postgres schema
+--
+-- Fonte única de verdade do banco. Substitui o antigo esquema em três
+-- migrations (0001_init.sql, 0002_app_extensions.sql, 0003_profile_editing.sql):
+-- as colunas e a infra de storage que cada uma adicionava já estão integradas
+-- nas tabelas abaixo, na ordem em que a UI as usa.
 -- ============================================================================
 create extension if not exists pgcrypto;
 
@@ -35,7 +40,14 @@ create table student_details (
   goal student_goal,
   experience_level experience_level,
   equipment text[] not null default '{}',
-  limitations text[] not null default '{}'
+  limitations text[] not null default '{}',
+  -- Unidade de carga preferida para EXIBIÇÃO (kg ou lb). Toda persistência de
+  -- peso continua em kg — esta coluna é só apresentação, para não corromper
+  -- séries/histórico já gravados em kg.
+  weight_unit text not null default 'kg' check (weight_unit in ('kg', 'lb')),
+  -- Mesma lógica para altura: exibição em cm ou ft (pés/polegadas), mas
+  -- height_cm continua sempre a fonte da verdade em centímetros.
+  height_unit text not null default 'cm' check (height_unit in ('cm', 'ft'))
 );
 
 create table trainer_details (
@@ -83,7 +95,13 @@ create table programs (
   default_rest_seconds int not null default 90,
   visibility program_visibility not null default 'private',
   published_at timestamptz, -- não nulo quando o dono publica no marketplace da comunidade
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Capa e metadados de card exibidos em "Programas" / "Comunidade".
+  cover_url text,
+  community_meta text,
+  community_desc text,
+  community_author text,
+  community_level text check (community_level in ('Iniciante', 'Intermediário', 'Avançado'))
 );
 
 create table program_assignments (
@@ -114,7 +132,14 @@ create table workout_exercises (
   sets_count int not null,
   rep_min int, -- sobrescreve o padrão do programa quando preenchido
   rep_max int,
-  target_kg numeric(6,2)
+  target_kg numeric(6,2),
+  -- Aquecimento, exercício alternativo e agrupamento de superset: deixam a UI
+  -- marcar a primeira série como aquecimento, oferecer uma variante para o
+  -- carrossel de execução e agrupar duas linhas como superset, sem exigir
+  -- uma tabela nova.
+  warmup boolean not null default false,
+  alt_exercise_id uuid references exercises (id) on delete set null,
+  superset_group text
 );
 
 -- ── EXECUÇÃO DE TREINO ───────────────────────────────────────────────────────
@@ -138,7 +163,11 @@ create table session_sets (
   reps_done int,
   kg_done numeric(6,2),
   completed boolean not null default false,
-  completed_at timestamptz
+  completed_at timestamptz,
+  -- Marca se a série é aquecimento ou trabalho, espelhando
+  -- workout_exercises.warmup na execução real, para o histórico não perder a
+  -- distinção.
+  kind text not null default 'work' check (kind in ('warm', 'work'))
 );
 
 -- ── PROGRESSO ────────────────────────────────────────────────────────────────
@@ -170,24 +199,40 @@ create index on session_sets (session_id);
 create index on body_metrics (student_id, recorded_at desc);
 
 -- ── AUTO-CRIAÇÃO DE PROFILE NO SIGNUP ────────────────────────────────────────
-create or replace function handle_new_user()
-returns trigger as $$
+-- security definer roda com o dono da função, mas sem "set search_path" o
+-- search_path efetivo durante o insert em auth.users pode não incluir
+-- "public" — a função falharia ao resolver "profiles" e o Supabase Auth
+-- devolveria 500 no signup. Fixar o search_path e qualificar os nomes.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  code text;
 begin
-  insert into profiles (id, role, full_name, email, invite_code)
+  -- invite_code é unique; gerar com retry evita falha intermitente em colisão
+  loop
+    code := lpad((floor(random() * 1000000))::text, 6, '0');
+    exit when not exists (select 1 from public.profiles p where p.invite_code = code);
+  end loop;
+
+  insert into public.profiles (id, role, full_name, email, invite_code)
   values (
     new.id,
-    coalesce((new.raw_user_meta_data ->> 'role')::user_role, 'student'),
+    coalesce((new.raw_user_meta_data ->> 'role')::public.user_role, 'student'),
     coalesce(new.raw_user_meta_data ->> 'full_name', ''),
     new.email,
-    lpad((floor(random() * 1000000))::text, 6, '0')
+    code
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute function handle_new_user();
+  for each row execute function public.handle_new_user();
 
 -- ============================================================================
 -- ROW LEVEL SECURITY
@@ -290,3 +335,38 @@ create policy "body_metrics_owner_all" on body_metrics for all using (student_id
 create policy "body_metrics_trainer_read" on body_metrics for select using (
   exists (select 1 from trainer_students ts where ts.student_id = body_metrics.student_id and ts.trainer_id = auth.uid() and ts.status = 'active')
 );
+
+-- ============================================================================
+-- STORAGE — fotos de perfil
+-- ============================================================================
+-- Bucket público em leitura (as fotos aparecem em telas de aluno/personal),
+-- mas cada usuário só escreve na própria pasta ({user_id}/...), garantido
+-- pelas policies abaixo.
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+create policy "avatars_public_read"
+  on storage.objects for select
+  using (bucket_id = 'avatars');
+
+create policy "avatars_owner_insert"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "avatars_owner_update"
+  on storage.objects for update
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "avatars_owner_delete"
+  on storage.objects for delete
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
