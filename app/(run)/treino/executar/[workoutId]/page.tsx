@@ -1,12 +1,12 @@
 "use client";
 
 import { use, useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCurrentProfile } from "@/lib/hooks";
 import { clock, restLabel } from "@/lib/format";
 import { Modal, ModalButton } from "@/components/ui/overlays";
+import { ScreenSkeleton } from "@/components/ui/primitives";
 import {
   XIcon,
   PlayIcon,
@@ -77,7 +77,7 @@ export default function RunPage({
     return () => clearInterval(t);
   }, [tickRun]);
 
-  if (!profile || !workout || !program || !activeRun) return null;
+  if (!profile || !workout || !program || !activeRun) return <ScreenSkeleton />;
 
   const pendingCount = wes.reduce((sum, we) => {
     const sets = activeRun.sets[we.id] ?? [];
@@ -132,13 +132,6 @@ export default function RunPage({
                 <PlayIcon size={14} />
               )}
             </button>
-            <button
-              onClick={attemptFinish}
-              aria-label="Finalizar treino"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white"
-            >
-              <CheckIcon size={15} />
-            </button>
           </div>
         </div>
       </div>
@@ -167,6 +160,14 @@ export default function RunPage({
             onVideo={() => setVideoExercise(we.exercise_id)}
           />
         ))}
+
+        <button
+          onClick={attemptFinish}
+          className="mt-2 flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-accent text-sm font-semibold text-white"
+        >
+          <CheckIcon size={16} />
+          Concluir treino
+        </button>
       </div>
 
       {activeRun.restLeft > 0 && (
@@ -277,28 +278,29 @@ export default function RunPage({
             ? exercises.find((e) => e.id === videoExercise)?.name
             : ""
         }
-        body="Costas apoiadas, descida controlada em 2 segundos, sem travar os joelhos no topo."
       >
-        <div className="relative h-43 w-full overflow-hidden rounded-2xl">
-          <Image
-            src="/covers/alt.jpg"
-            alt=""
-            fill
-            className="object-cover"
-            sizes="360px"
-          />
-          <div className="absolute inset-0 bg-black/[.28] flex items-center justify-center">
-            <span className="flex h-13 w-13 items-center justify-center rounded-full bg-white/90">
-              <PlayIcon size={20} />
-            </span>
-          </div>
-          <span
-            className="absolute bottom-2.5 left-2.5 rounded-md bg-black/60 px-2 py-1 text-2xs text-white"
-            style={{ fontFamily: "ui-monospace,Menlo,monospace" }}
-          >
-            vídeo de execução · 0:24
-          </span>
-        </div>
+        {(() => {
+          const mediaUrl = videoExercise
+            ? exercises.find((e) => e.id === videoExercise)?.media_url
+            : null;
+          if (mediaUrl) {
+            return (
+              <video
+                src={mediaUrl}
+                controls
+                className="h-43 w-full rounded-2xl bg-black object-cover"
+              />
+            );
+          }
+          return (
+            <div className="flex h-43 w-full flex-col items-center justify-center gap-2 rounded-2xl bg-surface2">
+              <VideoIcon size={28} className="text-muted" />
+              <span className="text-sm text-muted">
+                Vídeo disponível em breve
+              </span>
+            </div>
+          );
+        })()}
         <ModalButton kind="ghost" onClick={() => setVideoExercise(null)}>
           Fechar
         </ModalButton>
@@ -403,15 +405,25 @@ function ExerciseRunCard({
       </div>
 
       <div className="flex flex-col gap-2">
-        {sets
-          .reduce<{ st: (typeof sets)[number]; label: string | number }[]>(
+        {(() => {
+          const warmCount = sets.filter((s) => s.kind === "warm").length;
+          return sets.reduce<{ st: (typeof sets)[number]; label: string }[]>(
             (acc, st) => {
-              const workSoFar = acc.filter((x) => x.label !== "AQ").length;
-              const label = st.kind === "warm" ? "AQ" : workSoFar + 1;
-              return [...acc, { st, label }];
+              if (st.kind === "warm") {
+                const warmSoFar = acc.filter((x) =>
+                  x.label.startsWith("AQ"),
+                ).length;
+                const label = warmCount > 1 ? `AQ${warmSoFar + 1}` : "AQ";
+                return [...acc, { st, label }];
+              }
+              const workSoFar = acc.filter(
+                (x) => !x.label.startsWith("AQ"),
+              ).length;
+              return [...acc, { st, label: String(workSoFar + 1) }];
             },
             [],
-          )
+          );
+        })()
           .map(({ st, label }) => {
             return (
               <div
@@ -464,19 +476,17 @@ function ExerciseRunCard({
           })}
       </div>
 
-      <div className="flex items-center gap-4">
-        {!sets.some((s) => s.kind === "warm") && (
-          <button
-            onClick={onAddWarm}
-            className="text-sm font-medium"
-            style={{ color: "var(--warm)" }}
-          >
-            + Aquecimento
-          </button>
-        )}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={onAddWarm}
+          className="flex h-11 items-center justify-center rounded-xl border border-border bg-surface2 text-sm font-semibold"
+          style={{ color: "var(--warm)" }}
+        >
+          + Aquecimento
+        </button>
         <button
           onClick={onAddWork}
-          className="text-sm font-semibold text-accent"
+          className="flex h-11 items-center justify-center rounded-xl border border-border bg-surface2 text-sm font-semibold text-accent"
         >
           + Série
         </button>

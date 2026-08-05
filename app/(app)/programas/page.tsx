@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { useCurrentProfile, useRole } from "@/lib/hooks";
-import { Screen, Header, SectionLabel, IconTile } from "@/components/ui/primitives";
+import { Screen, Header, SectionLabel, IconTile, ScreenSkeleton } from "@/components/ui/primitives";
 import { PlusIcon, ChevronRightIcon, UsersIcon } from "@/components/icons";
 
 export default function ProgramasPage() {
@@ -17,7 +17,7 @@ export default function ProgramasPage() {
   const assignments = useAppStore((s) => s.programAssignments);
   const profiles = useAppStore((s) => s.profiles);
 
-  if (!profile) return null;
+  if (!profile) return <ScreenSkeleton />;
 
   const myPrograms =
     role === "trainer"

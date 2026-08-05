@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { firstName, formatDate, weekdayLabel } from "@/lib/format";
 import { startOfWeek } from "@/lib/workout";
-import { Screen, Header, Card, Eyebrow, StatCard, InitialsAvatar, DangerButton, IconTile } from "@/components/ui/primitives";
+import { Screen, Header, Card, Eyebrow, StatCard, InitialsAvatar, DangerButton, IconTile, ScreenSkeleton } from "@/components/ui/primitives";
 import { Modal, ModalButton } from "@/components/ui/overlays";
 import { CalendarIcon, CheckIcon } from "@/components/icons";
 
@@ -29,7 +29,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ studen
   const student = profiles.find((p) => p.id === studentId);
   const link = trainerStudents.find((ts) => ts.student_id === studentId);
 
-  if (!student) return null;
+  if (!student) return <ScreenSkeleton />;
 
   const liveAssignment = assignments.find((a) => a.student_id === studentId && a.status === "live");
   const scheduledAssignment = assignments.find((a) => a.student_id === studentId && a.status === "scheduled");

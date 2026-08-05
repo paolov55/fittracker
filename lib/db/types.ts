@@ -32,6 +32,9 @@ export interface StudentDetails {
   experience_level: ExperienceLevel | null;
   equipment: string[];
   limitations: string[];
+  // adicionada em 0003_profile_editing.sql — só apresentação; peso sempre
+  // persiste em kg.
+  weight_unit?: "kg" | "lb";
 }
 
 export interface TrainerDetails {

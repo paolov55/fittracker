@@ -110,10 +110,12 @@ a:hover {
   font-variant-numeric: tabular-nums;
 }
 
-input, textarea, select, button {
-  font-family: inherit;
-  color: inherit;
-}
-button {
-  cursor: pointer;
+@layer base {
+  input, textarea, select, button {
+    font-family: inherit;
+    color: inherit;
+  }
+  button {
+    cursor: pointer;
+  }
 }

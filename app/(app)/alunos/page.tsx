@@ -11,6 +11,7 @@ import {
   InitialsAvatar,
   ProgressBar,
   PrimaryButton,
+  ScreenSkeleton,
 } from "@/components/ui/primitives";
 import { Sheet } from "@/components/ui/overlays";
 import { PlusIcon, ChevronRightIcon } from "@/components/icons";
@@ -32,7 +33,7 @@ export default function AlunosPage() {
     null,
   );
 
-  if (!profile) return null;
+  if (!profile) return <ScreenSkeleton />;
 
   const links = trainerStudents.filter((ts) => ts.trainer_id === profile.id);
   const activeLinks = links.filter((l) => l.status === "active");

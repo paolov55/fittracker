@@ -24,6 +24,17 @@ export function Screen({
   );
 }
 
+export function ScreenSkeleton() {
+  return (
+    <div className="anim-ft-fade flex flex-col gap-4 px-5 pt-7 pb-27.5">
+      <div className="h-8 w-2/5 rounded-lg bg-surface2" />
+      <div className="h-28 w-full rounded-2xl bg-surface2" />
+      <div className="h-20 w-full rounded-2xl bg-surface2" />
+      <div className="h-20 w-full rounded-2xl bg-surface2" />
+    </div>
+  );
+}
+
 export function Header({
   title,
   onBack,

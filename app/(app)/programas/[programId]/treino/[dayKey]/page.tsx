@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { WEEK, restLabel } from "@/lib/format";
 import type { DayKey } from "@/lib/db/types";
-import { Screen, Header, Card, Stepper } from "@/components/ui/primitives";
+import { Screen, Header, Card, Stepper, ScreenSkeleton } from "@/components/ui/primitives";
 import { Sheet } from "@/components/ui/overlays";
 import {
   PlusIcon,
@@ -95,7 +95,7 @@ export default function BuilderPage({
     return ["Todos", ...Array.from(set)];
   }, [exercises]);
 
-  if (!program || !day) return null;
+  if (!program || !day) return <ScreenSkeleton />;
 
   function exerciseName(id: string) {
     return exercises.find((e) => e.id === id)?.name ?? "";

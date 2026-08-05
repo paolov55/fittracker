@@ -14,6 +14,7 @@ import {
   TextField,
   Stepper,
   Toggle,
+  ScreenSkeleton,
 } from "@/components/ui/primitives";
 import { CalendarIcon, ListIcon } from "@/components/icons";
 
@@ -457,7 +458,7 @@ function Row({
 
 export default function WizardPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<ScreenSkeleton />}>
       <WizardInner />
     </Suspense>
   );

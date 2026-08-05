@@ -3,7 +3,7 @@
 import { useAppStore } from "@/lib/store";
 import { useCurrentProfile } from "@/lib/hooks";
 import { weekdayLabel } from "@/lib/format";
-import { Screen, Header, Card, StatCard, IconTile } from "@/components/ui/primitives";
+import { Screen, Header, Card, StatCard, IconTile, ScreenSkeleton } from "@/components/ui/primitives";
 import { CheckIcon } from "@/components/icons";
 
 export default function HistoricoPage() {
@@ -11,7 +11,7 @@ export default function HistoricoPage() {
   const sessions = useAppStore((s) => s.sessions);
   const workouts = useAppStore((s) => s.workouts);
 
-  if (!profile) return null;
+  if (!profile) return <ScreenSkeleton />;
 
   const mine = sessions
     .filter((s) => s.student_id === profile.id && s.status === "completed")

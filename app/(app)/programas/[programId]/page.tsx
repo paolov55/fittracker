@@ -6,7 +6,7 @@ import { useAppStore } from "@/lib/store";
 import { useCurrentProfile } from "@/lib/hooks";
 import { WEEK, restLabel } from "@/lib/format";
 import { startOfWeek } from "@/lib/workout";
-import { Screen, Header, Card } from "@/components/ui/primitives";
+import { Screen, Header, Card, ScreenSkeleton } from "@/components/ui/primitives";
 import { CheckIcon, PlayIcon } from "@/components/icons";
 
 export default function ProgramDetailPage({ params }: { params: Promise<{ programId: string }> }) {
@@ -21,7 +21,7 @@ export default function ProgramDetailPage({ params }: { params: Promise<{ progra
   const profiles = useAppStore((s) => s.profiles);
 
   const program = programs.find((p) => p.id === programId);
-  if (!profile || !program) return null;
+  if (!profile || !program) return <ScreenSkeleton />;
 
   const isOwner = program.owner_id === profile.id;
   const owner = profiles.find((p) => p.id === program.owner_id);

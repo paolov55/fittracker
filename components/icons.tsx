@@ -256,3 +256,12 @@ export function CopyIcon({ size, ...p }: IconProps) {
     </svg>
   );
 }
+
+export function CameraIcon({ size, ...p }: IconProps) {
+  return (
+    <svg {...base(size)} {...p}>
+      <path d="M4 8.5A2 2 0 0 1 6 6.5h1.2a1 1 0 0 0 .87-.5l.6-1a1 1 0 0 1 .87-.5h4.92a1 1 0 0 1 .87.5l.6 1a1 1 0 0 0 .87.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </svg>
+  );
+}

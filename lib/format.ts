@@ -50,6 +50,18 @@ export function formatKg(kg: number): string {
   return kg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+const KG_TO_LB = 2.20462;
+
+/**
+ * Formata um peso (sempre armazenado em kg) na unidade escolhida pelo
+ * usuário, incluindo o sufixo. A persistência nunca muda — isto é só
+ * apresentação.
+ */
+export function formatWeight(kg: number, unit: "kg" | "lb" = "kg"): string {
+  const value = unit === "lb" ? kg * KG_TO_LB : kg;
+  return `${value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${unit}`;
+}
+
 export function formatWeekday(dateObj = new Date()): string {
   const dias = [
     "Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira",

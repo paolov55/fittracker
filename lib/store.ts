@@ -141,6 +141,13 @@ interface AppState {
     cref?: string;
   }) => void;
 
+  updateProfile: (data: {
+    avatarUrl?: string | null;
+    weightUnit?: "kg" | "lb";
+    goalWeightKg?: number;
+  }) => Promise<{ ok: boolean; message?: string }>;
+  uploadAvatar: (file: File) => Promise<{ ok: boolean; message?: string }>;
+
   createExercise: (name: string, muscles: string[], equipment: string) => Exercise;
 
   createProgram: (input: {
@@ -436,6 +443,76 @@ export const useAppStore = create<AppState>()(
             if (trainerError) get().showToast("Não foi possível salvar seu CREF");
           }
         })();
+      },
+
+      updateProfile: async (data) => {
+        const userId = get().currentUserId;
+        if (!userId) return { ok: false, message: "Sessão inválida" };
+
+        if (data.avatarUrl !== undefined) {
+          const { error } = await supabase
+            .from("profiles")
+            .update({ avatar_url: data.avatarUrl })
+            .eq("id", userId);
+          if (error) return { ok: false, message: "Não foi possível salvar a foto" };
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id === userId ? { ...p, avatar_url: data.avatarUrl! } : p,
+            ),
+          }));
+        }
+
+        if (data.weightUnit !== undefined || data.goalWeightKg !== undefined) {
+          const current = get().studentDetails.find((d) => d.profile_id === userId);
+          const patch: Partial<StudentDetails> = {};
+          if (data.weightUnit !== undefined) patch.weight_unit = data.weightUnit;
+          if (data.goalWeightKg !== undefined) patch.goal_weight_kg = data.goalWeightKg;
+
+          const { error } = await supabase
+            .from("student_details")
+            .upsert({ profile_id: userId, ...current, ...patch });
+          if (error) return { ok: false, message: "Não foi possível salvar" };
+
+          set((s) => {
+            const exists = s.studentDetails.some((d) => d.profile_id === userId);
+            const next: StudentDetails = {
+              profile_id: userId,
+              weight_kg: current?.weight_kg ?? null,
+              height_cm: current?.height_cm ?? null,
+              goal_weight_kg: current?.goal_weight_kg ?? null,
+              goal: current?.goal ?? null,
+              experience_level: current?.experience_level ?? null,
+              equipment: current?.equipment ?? [],
+              limitations: current?.limitations ?? [],
+              weight_unit: current?.weight_unit ?? "kg",
+              ...patch,
+            };
+            return {
+              studentDetails: exists
+                ? s.studentDetails.map((d) => (d.profile_id === userId ? next : d))
+                : [...s.studentDetails, next],
+            };
+          });
+        }
+
+        return { ok: true };
+      },
+
+      uploadAvatar: async (file) => {
+        const userId = get().currentUserId;
+        if (!userId) return { ok: false, message: "Sessão inválida" };
+
+        const ext = file.name.split(".").pop() ?? "jpg";
+        const path = `${userId}/avatar.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from("avatars")
+          .upload(path, file, { upsert: true });
+        if (uploadError) return { ok: false, message: "Não foi possível enviar a foto" };
+
+        const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+        // cache-busting: mesmo path, conteúdo novo
+        const avatarUrl = `${pub.publicUrl}?v=${Date.now()}`;
+        return get().updateProfile({ avatarUrl });
       },
 
       createExercise: (name, muscles, equipment) => {
@@ -736,20 +813,31 @@ export const useAppStore = create<AppState>()(
         const run = get().activeRun;
         if (!run) return;
         const list = run.sets[weId] ?? [];
-        if (list.some((s) => s.kind === "warm")) return;
+        const lastWarmIdx = list.reduce(
+          (last, s, i) => (s.kind === "warm" ? i : last),
+          -1,
+        );
+        const lastWarm = lastWarmIdx >= 0 ? list[lastWarmIdx] : undefined;
         const firstWork = list.find((s) => s.kind === "work");
+        const kgTarget =
+          lastWarm?.kgTarget ?? Math.round((firstWork?.kgTarget ?? 0) * 0.5);
         const warm: RunSetState = {
           setIndex: -1,
           kind: "warm",
           repMin: 12,
           repMax: 15,
-          kgTarget: Math.round((firstWork?.kgTarget ?? 0) * 0.5),
-          kg: String(Math.round((firstWork?.kgTarget ?? 0) * 0.5)),
+          kgTarget,
+          kg: String(kgTarget),
           reps: "",
           completed: false,
         };
-        const reindexed = [warm, ...list].map((s, i) => ({ ...s, setIndex: i }));
-        set({ activeRun: { ...run, sets: { ...run.sets, [weId]: reindexed } } });
+        const insertAt = lastWarmIdx >= 0 ? lastWarmIdx + 1 : 0;
+        const next = [
+          ...list.slice(0, insertAt),
+          warm,
+          ...list.slice(insertAt),
+        ].map((s, i) => ({ ...s, setIndex: i }));
+        set({ activeRun: { ...run, sets: { ...run.sets, [weId]: next } } });
       },
 
       addWorkSet: (weId) => {

@@ -13,6 +13,7 @@ import {
   ProgressBar,
   InitialsAvatar,
   IconTile,
+  ScreenSkeleton,
 } from "@/components/ui/primitives";
 import {
   SlidersIcon,
@@ -44,7 +45,7 @@ export default function InicioPage() {
     s.studentDetails.find((d) => d.profile_id === profile?.id),
   );
 
-  if (!profile) return null;
+  if (!profile) return <ScreenSkeleton />;
 
   const myAssignment = assignments.find(
     (a) => a.student_id === profile.id && a.status === "live",
