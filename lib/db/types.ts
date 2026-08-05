@@ -77,7 +77,7 @@ export interface Program {
   visibility: ProgramVisibility;
   published_at: string | null;
   created_at: string;
-  // extras client-side (não fazem parte do schema, usados só na UI)
+  // colunas adicionadas em 0002_app_extensions.sql
   cover_url?: string | null;
   community_meta?: string;
   community_desc?: string;
@@ -105,12 +105,8 @@ export interface Workout {
 }
 
 /**
- * O schema.sql não modela aquecimento nem superset explicitamente.
- * Convenção adotada aqui (documentada em lib/db/README.md):
- *  - `kind` marca a série como aquecimento ou trabalho na UI;
- *    ao persistir viram `workout_exercises` normais.
- *  - `superset_group` (letra "A"/"B"/...) agrupa exercícios que
- *    compartilham `order_index` — usado só para o carrossel/label da UI.
+ * `warmup`, `alt_exercise_id` e `superset_group` foram adicionados em
+ * 0002_app_extensions.sql (não existiam no schema.sql original).
  */
 export interface WorkoutExercise {
   id: string;
@@ -121,7 +117,6 @@ export interface WorkoutExercise {
   rep_min: number | null;
   rep_max: number | null;
   target_kg: number | null;
-  // extras client-side
   alt_exercise_id?: string | null;
   superset_group?: string | null;
   warmup?: boolean;
@@ -148,7 +143,7 @@ export interface SessionSet {
   kg_done: number | null;
   completed: boolean;
   completed_at: string | null;
-  // extra client-side
+  // adicionada em 0002_app_extensions.sql
   kind?: "warm" | "work";
 }
 

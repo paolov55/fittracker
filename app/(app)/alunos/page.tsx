@@ -46,9 +46,9 @@ export default function AlunosPage() {
       activeLinks.some((l) => l.student_id === s.student_id),
   ).length;
 
-  function submitCode() {
+  async function submitCode() {
     const digits = code.replace(/\D/g, "").slice(0, 6);
-    const r = addStudentByCode(digits);
+    const r = await addStudentByCode(digits);
     setResult(r);
     showToast(r.message);
     if (r.ok) {

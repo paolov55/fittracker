@@ -17,27 +17,11 @@ import type {
   BodyMetric,
   DayKey,
 } from "./db/types";
-import {
-  seedProfiles,
-  seedStudentDetails,
-  seedTrainerDetails,
-  seedTrainerStudents,
-  seedExercises,
-  seedPrograms,
-  seedWorkouts,
-  seedWorkoutExercises,
-  seedProgramAssignments,
-  seedCommunityPrograms,
-  seedSessions,
-  seedBodyMetrics,
-  SARA_ID,
-  PAOLO_ID,
-  LUANA_LOOKUP,
-  LUANA_ID,
-} from "./db/seed";
+import { supabase } from "./db/supabase/client";
+import { hydrateFromSupabase, type HydratedTables } from "./db/supabase/queries";
 
-function uid(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+function uid() {
+  return crypto.randomUUID();
 }
 function nowIso() {
   return new Date().toISOString();
@@ -77,17 +61,50 @@ export interface ActiveRun {
   sets: Record<string, RunSetState[]>; // workout_exercise_id -> sets
 }
 
+function emptyTables(): HydratedTables {
+  return {
+    profiles: [],
+    studentDetails: [],
+    trainerDetails: [],
+    trainerStudents: [],
+    exercises: [],
+    programs: [],
+    workouts: [],
+    workoutExercises: [],
+    programAssignments: [],
+    sessions: [],
+    sessionSets: [],
+    bodyMetrics: [],
+  };
+}
+
+function deriveCoachFlags(tables: HydratedTables, userId: string) {
+  const hasCoach = tables.trainerStudents.some(
+    (ts) => ts.student_id === userId && ts.status === "active"
+  );
+  const hasInvite = tables.trainerStudents.some(
+    (ts) => ts.student_id === userId && ts.status === "pending"
+  );
+  return { hasCoach, hasInvite };
+}
+
 interface AppState {
   hasHydrated: boolean;
   setHasHydrated: (v: boolean) => void;
+  initAuth: () => Promise<void>;
 
   theme: "light" | "dark";
   toggleTheme: () => void;
 
   currentUserId: string | null;
-  login: (email: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  signup: (fullName: string, email: string, role: "student" | "trainer") => string;
+  signup: (
+    fullName: string,
+    email: string,
+    password: string,
+    role: "student" | "trainer"
+  ) => Promise<string | null>;
 
   profiles: Profile[];
   studentDetails: StudentDetails[];
@@ -172,29 +189,12 @@ interface AppState {
   lastSummary: RunSummary | null;
   clearSummary: () => void;
 
-  addStudentByCode: (code: string) => { ok: boolean; message: string };
+  addStudentByCode: (code: string) => Promise<{ ok: boolean; message: string }>;
   removeStudentFromTeam: (studentId: string) => void;
   scheduleAssignment: (assignmentId: string, liveAt: string | null, status: "live" | "scheduled") => void;
   cancelAssignment: (assignmentId: string) => void;
 
   resetDemo: () => void;
-}
-
-function baseTables() {
-  return {
-    profiles: [...seedProfiles],
-    studentDetails: [...seedStudentDetails],
-    trainerDetails: [...seedTrainerDetails],
-    trainerStudents: [...seedTrainerStudents],
-    exercises: [...seedExercises],
-    programs: [...seedPrograms, ...seedCommunityPrograms],
-    workouts: [...seedWorkouts],
-    workoutExercises: [...seedWorkoutExercises],
-    programAssignments: [...seedProgramAssignments],
-    sessions: [...seedSessions],
-    sessionSets: [] as SessionSet[],
-    bodyMetrics: [...seedBodyMetrics],
-  };
 }
 
 function buildRunSets(
@@ -245,49 +245,130 @@ export const useAppStore = create<AppState>()(
       hasHydrated: false,
       setHasHydrated: (v) => set({ hasHydrated: v }),
 
+      initAuth: async () => {
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (data.session) {
+            const tables = await hydrateFromSupabase();
+            const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.session.user.id);
+            set({ ...tables, currentUserId: data.session.user.id, hasCoach, hasInvite });
+          }
+        } catch {
+          // sessão inválida/expirada — segue para a tela de login
+        } finally {
+          set({ hasHydrated: true });
+        }
+      },
+
       theme: "light",
       toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
 
       currentUserId: null,
-      login: (email) => {
-        const profile = get().profiles.find(
-          (p) => p.email.toLowerCase() === email.trim().toLowerCase()
-        );
-        if (!profile) return false;
-        set({ currentUserId: profile.id });
+      login: async (email, password) => {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error || !data.session) return false;
+        const tables = await hydrateFromSupabase();
+        const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.session.user.id);
+        set({ ...tables, currentUserId: data.session.user.id, hasCoach, hasInvite });
         return true;
       },
-      logout: () => set({ currentUserId: null }),
-      signup: (fullName, email, role) => {
-        const id = uid("profile");
-        const code = String(Math.floor(Math.random() * 1000000)).padStart(6, "0");
-        const profile: Profile = {
-          id,
-          role,
-          full_name: fullName,
+      logout: () => {
+        set({ ...emptyTables(), currentUserId: null, hasCoach: false, hasInvite: false, activeRun: null });
+        supabase.auth.signOut().catch(() => {});
+      },
+      signup: async (fullName, email, password, role) => {
+        const { data, error } = await supabase.auth.signUp({
           email,
-          avatar_url: null,
-          invite_code: code,
-          created_at: nowIso(),
-        };
-        set((s) => ({ profiles: [...s.profiles, profile], currentUserId: id }));
-        return id;
+          password,
+          options: { data: { full_name: fullName, role } },
+        });
+        if (error || !data.user) {
+          get().showToast(error?.message ?? "Não foi possível criar a conta");
+          return null;
+        }
+        if (data.session) {
+          const tables = await hydrateFromSupabase();
+          const { hasCoach, hasInvite } = deriveCoachFlags(tables, data.user.id);
+          set({ ...tables, currentUserId: data.user.id, hasCoach, hasInvite });
+        } else {
+          // confirmação de e-mail pendente: segue com um perfil local otimista
+          get().showToast("Confirme seu e-mail para concluir o cadastro");
+          set((s) => ({
+            currentUserId: data.user!.id,
+            profiles: [
+              ...s.profiles,
+              {
+                id: data.user!.id,
+                role,
+                full_name: fullName,
+                email,
+                avatar_url: null,
+                invite_code: String(Math.floor(Math.random() * 1000000)).padStart(6, "0"),
+                created_at: nowIso(),
+              },
+            ],
+          }));
+        }
+        return data.user.id;
       },
 
-      ...baseTables(),
+      ...emptyTables(),
 
-      hasInvite: true,
-      hasCoach: true,
-      acceptInvite: () =>
+      hasInvite: false,
+      hasCoach: false,
+      acceptInvite: () => {
+        const userId = get().currentUserId;
+        if (!userId) return;
+        const link = get().trainerStudents.find(
+          (ts) => ts.student_id === userId && ts.status === "pending"
+        );
+        if (!link) return;
+        const joined_at = nowIso();
         set((s) => ({
           hasCoach: true,
           hasInvite: false,
           trainerStudents: s.trainerStudents.map((ts) =>
-            ts.student_id === s.currentUserId ? { ...ts, status: "active", joined_at: nowIso() } : ts
+            ts.id === link.id ? { ...ts, status: "active", joined_at } : ts
           ),
-        })),
-      declineInvite: () => set({ hasInvite: false }),
-      leaveCoach: () => set({ hasCoach: false }),
+        }));
+        supabase
+          .from("trainer_students")
+          .update({ status: "active", joined_at })
+          .eq("id", link.id)
+          .then(({ error }) => {
+            if (error) get().showToast("Não foi possível confirmar a equipe");
+          });
+      },
+      declineInvite: () => {
+        const userId = get().currentUserId;
+        if (!userId) return;
+        const link = get().trainerStudents.find(
+          (ts) => ts.student_id === userId && ts.status === "pending"
+        );
+        set({ hasInvite: false });
+        if (!link) return;
+        set((s) => ({ trainerStudents: s.trainerStudents.filter((ts) => ts.id !== link.id) }));
+        supabase
+          .from("trainer_students")
+          .update({ status: "removed" })
+          .eq("id", link.id)
+          .then(() => {});
+      },
+      leaveCoach: () => {
+        const userId = get().currentUserId;
+        if (!userId) return;
+        const link = get().trainerStudents.find(
+          (ts) => ts.student_id === userId && ts.status === "active"
+        );
+        set({ hasCoach: false });
+        if (!link) return;
+        set((s) => ({ trainerStudents: s.trainerStudents.filter((ts) => ts.id !== link.id) }));
+        supabase
+          .from("trainer_students")
+          .update({ status: "removed" })
+          .eq("id", link.id)
+          .then(() => {});
+      },
 
       toast: null,
       showToast: (msg) => set({ toast: msg }),
@@ -329,11 +410,37 @@ export const useAppStore = create<AppState>()(
           }
           return { studentDetails, profiles, trainerDetails };
         });
+
+        (async () => {
+          const { error } = await supabase.from("student_details").upsert({
+            profile_id: userId,
+            weight_kg: data.weight_kg,
+            height_cm: data.height_cm,
+            goal_weight_kg: data.goal_weight_kg,
+            goal: data.goal,
+            experience_level: data.experience_level,
+            equipment: data.equipment,
+            limitations: data.limitations,
+          });
+          if (error) get().showToast("Não foi possível salvar seu perfil");
+
+          if (data.isTrainer) {
+            await supabase.from("profiles").update({ role: "trainer" }).eq("id", userId);
+            const { error: trainerError } = await supabase.from("trainer_details").upsert({
+              profile_id: userId,
+              cref_number: data.cref ?? "",
+              cref_uf: "SP",
+              verification_status: "verified",
+              verified_at: nowIso(),
+            });
+            if (trainerError) get().showToast("Não foi possível salvar seu CREF");
+          }
+        })();
       },
 
       createExercise: (name, muscles, equipment) => {
         const exercise: Exercise = {
-          id: uid("ex"),
+          id: uid(),
           name,
           muscle_group: muscles[0] ?? "Peito",
           equipment,
@@ -341,12 +448,18 @@ export const useAppStore = create<AppState>()(
           created_by: get().currentUserId,
         };
         set((s) => ({ exercises: [...s.exercises, exercise] }));
+        supabase
+          .from("exercises")
+          .insert(exercise)
+          .then(({ error }) => {
+            if (error) get().showToast("Não foi possível salvar o exercício");
+          });
         return exercise;
       },
 
       createProgram: (input) => {
         const program: Program = {
-          id: uid("program"),
+          id: uid(),
           owner_id: input.ownerId,
           name: input.name,
           goal: input.goal,
@@ -365,9 +478,11 @@ export const useAppStore = create<AppState>()(
           cover_url: "/covers/novo.jpg",
         };
         set((s) => ({ programs: [...s.programs, program] }));
+
+        let assignment: ProgramAssignment | null = null;
         if (input.forStudentId) {
-          const assignment: ProgramAssignment = {
-            id: uid("assign"),
+          assignment = {
+            id: uid(),
             program_id: program.id,
             student_id: input.forStudentId,
             assigned_by: input.ownerId,
@@ -375,8 +490,25 @@ export const useAppStore = create<AppState>()(
             status: input.liveAt && new Date(input.liveAt) > new Date() ? "scheduled" : "live",
             created_at: nowIso(),
           };
-          set((s) => ({ programAssignments: [...s.programAssignments, assignment] }));
+          set((s) => ({ programAssignments: [...s.programAssignments, assignment!] }));
         }
+
+        (async () => {
+          const { cover_url, community_meta, community_desc, community_author, community_level, ...rest } =
+            program;
+          const { error } = await supabase
+            .from("programs")
+            .insert({ ...rest, cover_url, community_meta, community_desc, community_author, community_level });
+          if (error) {
+            get().showToast("Não foi possível salvar o programa");
+            return;
+          }
+          if (assignment) {
+            const { error: assignError } = await supabase.from("program_assignments").insert(assignment);
+            if (assignError) get().showToast("Não foi possível atribuir o programa");
+          }
+        })();
+
         return program;
       },
 
@@ -386,7 +518,7 @@ export const useAppStore = create<AppState>()(
         if (!src || !userId) throw new Error("Programa ou usuário não encontrado");
         const newProgram: Program = {
           ...src,
-          id: uid("program"),
+          id: uid(),
           owner_id: userId,
           visibility: "private",
           published_at: null,
@@ -394,17 +526,16 @@ export const useAppStore = create<AppState>()(
         };
         set((s) => ({ programs: [...s.programs, newProgram] }));
 
-        // clona os treinos de referência do Upper/Lower (templates existentes)
-        // em seg/qua/sex, como no protótipo original.
-        const templateWorkoutIds = get()
-          .workouts.filter((w) => w.program_id === "program-upper-lower")
+        // clona os treinos do programa de origem (mesma grade seg/qua/sex do template)
+        const templateWorkouts = get()
+          .workouts.filter((w) => w.program_id === src.id)
           .sort((a, b) => (a.day_key ?? "").localeCompare(b.day_key ?? ""));
         const dayMap: DayKey[] = ["seg", "qua", "sex"];
         const newWorkouts: Workout[] = [];
         const newWEs: WorkoutExercise[] = [];
-        templateWorkoutIds.slice(0, 3).forEach((tw, i) => {
+        templateWorkouts.slice(0, 3).forEach((tw, i) => {
           const nw: Workout = {
-            id: uid("workout"),
+            id: uid(),
             program_id: newProgram.id,
             day_key: dayMap[i],
             sequence_order: null,
@@ -415,23 +546,59 @@ export const useAppStore = create<AppState>()(
           get()
             .workoutExercises.filter((we) => we.workout_id === tw.id)
             .forEach((we) => {
-              newWEs.push({ ...we, id: uid("we"), workout_id: nw.id });
+              newWEs.push({ ...we, id: uid(), workout_id: nw.id });
             });
         });
         set((s) => ({
           workouts: [...s.workouts, ...newWorkouts],
           workoutExercises: [...s.workoutExercises, ...newWEs],
         }));
+
+        (async () => {
+          const { community_meta, community_desc, community_author, community_level, ...rest } = newProgram;
+          void community_meta;
+          void community_desc;
+          void community_author;
+          void community_level;
+          const { error } = await supabase.from("programs").insert({
+            ...rest,
+            community_meta: null,
+            community_desc: null,
+            community_author: null,
+            community_level: null,
+          });
+          if (error) {
+            get().showToast("Não foi possível clonar o programa");
+            return;
+          }
+          if (newWorkouts.length) {
+            const { error: workoutsError } = await supabase.from("workouts").insert(newWorkouts);
+            if (workoutsError) get().showToast("Não foi possível clonar os treinos");
+          }
+          if (newWEs.length) {
+            const { error: wesError } = await supabase.from("workout_exercises").insert(
+              newWEs.map(({ alt_exercise_id, superset_group, warmup, ...we }) => ({
+                ...we,
+                alt_exercise_id,
+                superset_group,
+                warmup,
+              }))
+            );
+            if (wesError) get().showToast("Não foi possível clonar os exercícios");
+          }
+        })();
+
         return newProgram;
       },
 
       saveWorkout: ({ programId, dayKey, name, restSeconds, exercises }) => {
+        let workoutId = "";
         set((s) => {
           let workout = s.workouts.find((w) => w.program_id === programId && w.day_key === dayKey);
           let workouts = s.workouts;
           if (!workout) {
             workout = {
-              id: uid("workout"),
+              id: uid(),
               program_id: programId,
               day_key: dayKey,
               sequence_order: null,
@@ -443,15 +610,31 @@ export const useAppStore = create<AppState>()(
             const wId = workout.id;
             workouts = workouts.map((w) => (w.id === wId ? { ...w, name, rest_seconds: restSeconds } : w));
           }
+          workoutId = workout.id;
           const otherWEs = s.workoutExercises.filter((we) => we.workout_id !== workout!.id);
           const newWEs = exercises.map((we, i) => ({
             ...we,
-            id: uid("we"),
+            id: uid(),
             workout_id: workout!.id,
             order_index: i,
           }));
           return { workouts, workoutExercises: [...otherWEs, ...newWEs] };
         });
+
+        (async () => {
+          const workout = get().workouts.find((w) => w.id === workoutId)!;
+          const { error: workoutError } = await supabase.from("workouts").upsert(workout);
+          if (workoutError) {
+            get().showToast("Não foi possível salvar o treino");
+            return;
+          }
+          await supabase.from("workout_exercises").delete().eq("workout_id", workoutId);
+          const wes = get().workoutExercises.filter((we) => we.workout_id === workoutId);
+          if (wes.length) {
+            const { error: wesError } = await supabase.from("workout_exercises").insert(wes);
+            if (wesError) get().showToast("Não foi possível salvar os exercícios do treino");
+          }
+        })();
       },
 
       activeRun: null,
@@ -459,7 +642,7 @@ export const useAppStore = create<AppState>()(
       clearSummary: () => set({ lastSummary: null }),
 
       startRun: (workoutId, programId, studentId) => {
-        const sessionId = uid("session");
+        const sessionId = uid();
         const session: Session = {
           id: sessionId,
           student_id: studentId,
@@ -488,6 +671,12 @@ export const useAppStore = create<AppState>()(
             sets,
           },
         }));
+        supabase
+          .from("sessions")
+          .insert(session)
+          .then(({ error }) => {
+            if (error) get().showToast("Não foi possível iniciar a sessão no servidor");
+          });
         return sessionId;
       },
 
@@ -626,6 +815,11 @@ export const useAppStore = create<AppState>()(
           ),
           activeRun: null,
         }));
+        supabase
+          .from("sessions")
+          .update({ status: "discarded", ended_at: nowIso() })
+          .eq("id", run.sessionId)
+          .then(() => {});
       },
 
       finishRun: (mode) => {
@@ -658,7 +852,7 @@ export const useAppStore = create<AppState>()(
         }, 0);
 
         const sessionSets: SessionSet[] = done.map(({ weId, st }) => ({
-          id: uid("sset"),
+          id: uid(),
           session_id: run.sessionId,
           workout_exercise_id: weId,
           set_index: st.setIndex,
@@ -669,6 +863,9 @@ export const useAppStore = create<AppState>()(
           kind: st.kind,
         }));
 
+        const totalVolume = Math.round(volume * 10) / 10;
+        const endedAt = nowIso();
+
         set((s) => ({
           sessionSets: [...s.sessionSets, ...sessionSets],
           sessions: s.sessions.map((sess) =>
@@ -676,19 +873,36 @@ export const useAppStore = create<AppState>()(
               ? {
                   ...sess,
                   status: "completed",
-                  ended_at: nowIso(),
+                  ended_at: endedAt,
                   duration_seconds: run.elapsed,
-                  total_volume_kg: Math.round(volume * 10) / 10,
+                  total_volume_kg: totalVolume,
                 }
               : sess
           ),
           activeRun: null,
         }));
 
+        (async () => {
+          if (sessionSets.length) {
+            const { error } = await supabase.from("session_sets").insert(sessionSets);
+            if (error) get().showToast("Não foi possível salvar as séries do treino");
+          }
+          const { error: sessionError } = await supabase
+            .from("sessions")
+            .update({
+              status: "completed",
+              ended_at: endedAt,
+              duration_seconds: run.elapsed,
+              total_volume_kg: totalVolume,
+            })
+            .eq("id", run.sessionId);
+          if (sessionError) get().showToast("Não foi possível salvar a sessão");
+        })();
+
         const summary: RunSummary = {
           duration: run.elapsed,
           setsCompleted: done.length,
-          volume: Math.round(volume * 10) / 10,
+          volume: totalVolume,
           programName: program?.name ?? "",
           workoutName: workout?.name ?? "",
         };
@@ -696,28 +910,37 @@ export const useAppStore = create<AppState>()(
         return summary;
       },
 
-      addStudentByCode: (code) => {
+      addStudentByCode: async (code) => {
         if (code.length !== 6) return { ok: false, message: "Digite os 6 dígitos do código" };
         const trainerId = get().currentUserId;
         if (!trainerId) return { ok: false, message: "Código não encontrado" };
-        if (code === LUANA_LOOKUP.code) {
-          const exists = get().trainerStudents.some(
-            (ts) => ts.trainer_id === trainerId && ts.student_id === LUANA_ID
-          );
-          if (!exists) {
-            const link: TrainerStudent = {
-              id: uid("ts"),
-              trainer_id: trainerId,
-              student_id: LUANA_ID,
-              status: "pending",
-              invited_at: nowIso(),
-              joined_at: null,
-            };
-            set((s) => ({ trainerStudents: [...s.trainerStudents, link] }));
-          }
-          return { ok: true, message: `Convite enviado para ${LUANA_LOOKUP.name}` };
-        }
-        return { ok: false, message: "Código não encontrado" };
+
+        const { data: student, error } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .eq("invite_code", code)
+          .maybeSingle();
+        if (error || !student) return { ok: false, message: "Código não encontrado" };
+        if (student.id === trainerId) return { ok: false, message: "Código não encontrado" };
+
+        const exists = get().trainerStudents.some(
+          (ts) => ts.trainer_id === trainerId && ts.student_id === student.id
+        );
+        if (exists) return { ok: true, message: `Convite já enviado para ${student.full_name}` };
+
+        const link: TrainerStudent = {
+          id: uid(),
+          trainer_id: trainerId,
+          student_id: student.id,
+          status: "pending",
+          invited_at: nowIso(),
+          joined_at: null,
+        };
+        const { error: insertError } = await supabase.from("trainer_students").insert(link);
+        if (insertError) return { ok: false, message: "Não foi possível enviar o convite" };
+
+        set((s) => ({ trainerStudents: [...s.trainerStudents, link] }));
+        return { ok: true, message: `Convite enviado para ${student.full_name}` };
       },
 
       removeStudentFromTeam: (studentId) => {
@@ -727,6 +950,12 @@ export const useAppStore = create<AppState>()(
             (ts) => !(ts.trainer_id === trainerId && ts.student_id === studentId)
           ),
         }));
+        supabase
+          .from("trainer_students")
+          .delete()
+          .eq("trainer_id", trainerId ?? "")
+          .eq("student_id", studentId)
+          .then(() => {});
       },
 
       scheduleAssignment: (assignmentId, liveAt, status) => {
@@ -735,52 +964,39 @@ export const useAppStore = create<AppState>()(
             a.id === assignmentId ? { ...a, live_at: liveAt ?? a.live_at, status } : a
           ),
         }));
+        supabase
+          .from("program_assignments")
+          .update({ live_at: liveAt ?? undefined, status })
+          .eq("id", assignmentId)
+          .then(({ error }) => {
+            if (error) get().showToast("Não foi possível atualizar a atribuição");
+          });
       },
       cancelAssignment: (assignmentId) => {
         set((s) => ({
           programAssignments: s.programAssignments.filter((a) => a.id !== assignmentId),
         }));
+        supabase
+          .from("program_assignments")
+          .delete()
+          .eq("id", assignmentId)
+          .then(() => {});
       },
 
       resetDemo: () => {
-        set({
-          ...baseTables(),
-          currentUserId: SARA_ID,
-          hasCoach: true,
-          hasInvite: false,
-          activeRun: null,
-          toast: null,
-        });
+        set({ activeRun: null, toast: null, lastSummary: null });
       },
     }),
     {
       name: "fittracker-store",
       partialize: (s) => ({
         theme: s.theme,
-        currentUserId: s.currentUserId,
-        profiles: s.profiles,
-        studentDetails: s.studentDetails,
-        trainerDetails: s.trainerDetails,
-        trainerStudents: s.trainerStudents,
-        exercises: s.exercises,
-        programs: s.programs,
-        workouts: s.workouts,
-        workoutExercises: s.workoutExercises,
-        programAssignments: s.programAssignments,
-        sessions: s.sessions,
-        sessionSets: s.sessionSets,
-        bodyMetrics: s.bodyMetrics,
-        hasInvite: s.hasInvite,
-        hasCoach: s.hasCoach,
         activeRun: s.activeRun,
         lastSummary: s.lastSummary,
       }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+      onRehydrateStorage: () => () => {
+        // a hidratação de dados agora vem do Supabase (ver initAuth em HydrationGate)
       },
     }
   )
 );
-
-export const DEMO_TRAINER_ID = PAOLO_ID;
-export const DEMO_STUDENT_ID = SARA_ID;

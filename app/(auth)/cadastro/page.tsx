@@ -6,7 +6,12 @@ import { useAppStore } from "@/lib/store";
 import { ChevronLeftIcon } from "@/components/icons";
 import { PrimaryButton, TextField } from "@/components/ui/primitives";
 
-const STRENGTH_LABELS = ["Use pelo menos 8 caracteres", "Senha fraca", "Senha razoável", "Senha forte"];
+const STRENGTH_LABELS = [
+  "Use pelo menos 8 caracteres",
+  "Senha fraca",
+  "Senha razoável",
+  "Senha forte",
+];
 
 function strengthOf(pass: string) {
   if (pass.length === 0) return 0;
@@ -24,15 +29,19 @@ export default function CadastroPage() {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [accept, setAccept] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const strength = useMemo(() => strengthOf(pass), [pass]);
 
-  function submit() {
+  async function submit() {
     if (!name.trim()) return showToast("Informe seu nome");
     if (!/^\S+@\S+\.\S+$/.test(email)) return showToast("E-mail inválido");
     if (pass.length < 8) return showToast("A senha precisa de 8 caracteres");
     if (!accept) return showToast("Aceite os termos para continuar");
-    signup(name.trim(), email.trim(), "student");
+    setLoading(true);
+    const id = await signup(name.trim(), email.trim(), pass, "student");
+    setLoading(false);
+    if (!id) return;
     router.push("/onboarding");
   }
 
@@ -52,7 +61,12 @@ export default function CadastroPage() {
       </div>
 
       <div className="flex flex-col gap-4">
-        <TextField label="Nome completo" placeholder="Sara Souza" value={name} onChange={(e) => setName(e.target.value)} />
+        <TextField
+          label="Nome completo"
+          placeholder="Sara Souza"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
         <TextField
           label="E-mail"
           type="email"
@@ -73,11 +87,15 @@ export default function CadastroPage() {
               <div
                 key={i}
                 className="h-1 flex-1 rounded-pill"
-                style={{ background: i < strength ? "var(--accent)" : "var(--border)" }}
+                style={{
+                  background: i < strength ? "var(--accent)" : "var(--border)",
+                }}
               />
             ))}
           </div>
-          <span className="text-sm text-muted">{STRENGTH_LABELS[strength]}</span>
+          <span className="text-sm text-muted">
+            {STRENGTH_LABELS[strength]}
+          </span>
         </div>
 
         <label className="flex items-start gap-2.5">
@@ -85,7 +103,7 @@ export default function CadastroPage() {
             type="checkbox"
             checked={accept}
             onChange={(e) => setAccept(e.target.checked)}
-            className="mt-0.5 h-[22px] w-[22px] shrink-0 rounded-[7px] accent-[var(--accent)]"
+            className="mt-0.5 h-5.5 w-5.5 shrink-0 rounded-xs accent-accent"
           />
           <span className="text-sm text-muted">
             Aceito os termos de uso e a política de privacidade do FitTracker.
@@ -93,7 +111,9 @@ export default function CadastroPage() {
         </label>
       </div>
 
-      <PrimaryButton onClick={submit}>Criar conta</PrimaryButton>
+      <PrimaryButton onClick={submit} disabled={loading}>
+        {loading ? "Criando conta…" : "Criar conta"}
+      </PrimaryButton>
     </div>
   );
 }

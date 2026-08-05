@@ -6,7 +6,11 @@ import { useAppStore } from "@/lib/store";
 import { useRole } from "@/lib/hooks";
 import BottomNav from "@/components/nav/BottomNav";
 
-export default function AppShellLayout({ children }: { children: React.ReactNode }) {
+export default function AppShellLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const router = useRouter();
   const currentUserId = useAppStore((s) => s.currentUserId);
   const role = useRole();
@@ -19,7 +23,7 @@ export default function AppShellLayout({ children }: { children: React.ReactNode
 
   return (
     <div className="flex min-h-dvh justify-center bg-page">
-      <div className="relative flex w-full max-w-[430px] flex-col bg-bg min-h-dvh">
+      <div className="relative flex w-full max-w-107.5 flex-col bg-bg min-h-dvh">
         {children}
         <BottomNav role={role} />
       </div>
